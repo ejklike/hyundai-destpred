@@ -65,10 +65,6 @@ class DataLoader(object):
                 new_car = []
                 car_list.append(new_car)
             if is_new_path:
-                # finalize the previous path
-                if not is_new_car:
-                    car_list[-1][-1].preprocess_format()
-                # initialize the new path
                 new_path = Path(row.car_id, row.start_dt)
                 car_list[-1].append(new_path)
         
@@ -78,9 +74,13 @@ class DataLoader(object):
             prev_car_id, prev_start_dt = row.car_id, row.start_dt
 
             progress_msg = '\r---Progress...{:10}/{}, num_cars={:3}'
-            print(progress_msg.format(i, df.shape[0], len(car_list)), 
+            print(progress_msg.format(i+1, df.shape[0], len(car_list)), 
                 end='', flush=True)
         print('')
+
+        for path_list in car_list:
+            for path in path_list:
+                path.preprocess_format()
 
         with open(pkl_fname, 'wb') as fout:
             pickle.dump(car_list, fout)
@@ -89,5 +89,4 @@ class DataLoader(object):
         with open(pkl_fname, 'rb') as fin:
             self.raw_data = pickle.load(fin)
         print('Loading data... len(vehicle) =', len(self.raw_data))
-
 
