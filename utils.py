@@ -12,8 +12,6 @@ class Path(object):
 
         # np array of (x,y)
         self.xy_list = []
-        # timestamp @ departure
-        self.time_at_departure = 0
         # list of linkID
         self.link_id_list = []
 
@@ -26,6 +24,7 @@ class Path(object):
         del self.xy_list
         # time...
         # ...
+
 
 class DataLoader(object):
 
