@@ -98,3 +98,54 @@ class DataLoader(object):
     @property
     def raw_data(self):
         return self._raw_data
+
+    def get_trn_tst(self, car_id, seq_len=10, 
+                    test_size=0.3, random_state=42, 
+                    exclude_start=True):
+
+        # get path list
+        path_instance_list = self.raw_data[car_id]
+        
+        # path list
+        path_list = [path.xy for path in path_instance_list]
+        
+        path_len_list = [len(path) for path in path_list]
+        print('car_id #', car_id)
+        print('(min, med, max) of len(path) = ({}, {:.0f}, {})'.format(
+            np.min(path_len_list),
+            np.median(path_len_list), 
+            np.max(path_len_list))
+        )
+        
+        # filter initial points or not
+        if exclude_start:
+            path_list = [path[1:] for path in path_list]
+        # filter path shorter than seq_len
+        path_list = [path for path in path_list if len(path) >= seq_len]
+
+        # get input and dest from path
+        input_list = [path[:seq_len] for path in path_list]
+        dest_list = [path[-1] for path in path_list]
+
+        # data split
+        x_trn, x_tst, y_trn, y_tst = train_test_split(
+            input_list, dest_list, test_size=test_size, random_state=random_state)
+        
+        # data scaling
+        trn_xy_array = np.concatenate(x_trn)
+        sc = StandardScaler().fit(trn_xy_array)
+        x_trn = [sc.transform(x) for x in x_trn]
+        x_tst = [sc.transform(x) for x in x_tst]
+        y_trn = [sc.transform([y])[0] for y in y_trn]
+        y_tst = [sc.transform([y])[0] for y in y_tst]
+
+        # transform input xy sequence to feature matrix
+        x_trn = np.concatenate([x.reshape(1, -1) for x in x_trn])
+        x_tst = np.concatenate([x.reshape(1, -1) for x in x_tst])
+        # transform dest xy list to output matrix
+        y_trn, y_tst = np.vstack(y_trn), np.vstack(y_tst)
+
+        print('x_trn.shape, x_tst.shape, y_trn.shape, y_tst.shape')
+        print(x_trn.shape, x_tst.shape, y_trn.shape, y_tst.shape)
+        
+        return x_trn, x_tst, y_trn, y_tst
