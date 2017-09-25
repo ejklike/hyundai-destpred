@@ -97,30 +97,43 @@ class DataLoader(object):
         
         for car_id, paths in tqdm(paths_by_car.items()):
             
-            for path in paths:
-                
-                meta_feature = path.get_meta_feature(self._meta_handler)
-                final_destination = path.get_final_destination()
-                
-                for proportion in proportion_of_path_list:
+            for proportion in proportion_of_path_list:
+
+                final_dest_pred_data = {
+                    'input':[],
+                    'meta':[],
+                    'dest':[]
+                }
+
+                for path in paths:
                     
                     partial_path = path.get_partial_path(proportion)
+                    meta_feature = path.get_meta_feature(self._meta_handler)
+                    final_destination = path.get_final_destination()
                     
-                    final_dest_pred_data = {
-                        'input':partial_path,
-                        'meta':meta_feature,
-                        'dest':final_destination
+                    final_dest_pred_data['input'].append(partial_path)
+                    final_dest_pred_data['meta'].append(meta_feature)
+                    final_dest_pred_data['dest'].append(final_destination)
+                    
+                self._save_to_pkl(save_dir, car_id, proportion, 'F', final_dest_pred_data)
+
+                for short_term_pred_min in short_term_pred_min_list:
+                    
+                    short_term_dest_pred_data = {
+                        'input':[],
+                        'meta':[],
+                        'dest':[]
                     }
-                    self._save_to_pkl(save_dir, car_id, proportion, 'F', final_dest_pred_data)
                     
-                    for short_term_pred_min in short_term_pred_min_list:
-                        
+                    for path in paths:
+
+                        partial_path = path.get_partial_path(proportion)
+                        meta_feature = path.get_meta_feature(self._meta_handler)
                         short_term_destination = path.get_short_term_destination(partial_path, short_term_pred_min)
                         
                         if short_term_destination:
-                            short_term_dest_pred_data = {
-                                'input':partial_path,
-                                'meta':meta_feature,
-                                'dest':short_term_destination
-                            }
-                            self._save_to_pkl(save_dir, car_id, proportion, short_term_pred_min, short_term_dest_pred_data)
+                            short_term_dest_pred_data['input'].append(partial_path)
+                            short_term_dest_pred_data['meta'].append(meta_feature)
+                            short_term_dest_pred_data['dest'].append(short_term_destination)
+
+                    self._save_to_pkl(save_dir, car_id, proportion, short_term_pred_min, short_term_dest_pred_data)
