@@ -1,4 +1,6 @@
 data
+data_pkl
 model
+tf_logs
 .vscode
 __pycache__
