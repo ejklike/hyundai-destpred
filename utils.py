@@ -1,8 +1,12 @@
 import os
 from datetime import datetime, date
 import pickle
+
 import numpy as np
 import pandas as pd
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 
 class Path(object):
@@ -91,14 +95,17 @@ class DataLoader(object):
     def __init__(self, fname, delimiter=','):
         self.data_dir = './data'
         self.data_fname = os.path.join(self.data_dir, fname)
-        pkl_fname = os.path.join(self.data_dir, 'data.p')
+        fname_prefix, __ = fname.split('.')
+        pkl_fname = os.path.join(self.data_dir, fname_prefix + '.p')
 
         # load kor_event_days.json
         self.event_data = _load_jsonfile(os.path.join(self.data_dir, 'kor_event_days.json'))
 
         if not os.path.exists(pkl_fname):
-            print('Creating pkl file from raw data ...')
+            print('Creating {} from raw data ...'.format(pkl_fname))
             self._preprocess_to_pkl(pkl_fname, delimiter)
+        else:
+            print('Loading data from existing pkl file ... ', end='')
 
         # load data
         self._load_data(pkl_fname)
@@ -115,11 +122,10 @@ class DataLoader(object):
 
         prev_car_id, prev_start_dt = '', 0
         for i, row in enumerate(df.itertuples()):
+            # filter 
             if len(row) < 6 + 1:  # column_size + index
                 print('Pass the {}-th row : '.format(i), row)
                 continue
-
-            # car_id, start_dt, seq_id, x, y, link_id = row
 
             is_new_car = prev_car_id != row.car_id
             is_new_path = prev_start_dt != row.start_dt
@@ -149,8 +155,12 @@ class DataLoader(object):
 
     def _load_data(self, pkl_fname):
         with open(pkl_fname, 'rb') as fin:
-            self.raw_data = pickle.load(fin)
-        print('Loading data... len(vehicle) =', len(self.raw_data))
+            self._raw_data = pickle.load(fin)
+        print('Loading finished. len(vehicle) =', len(self._raw_data))
+
+    @property
+    def raw_data(self):
+        return self._raw_data
 
 
 def _load_jsonfile(fname):
