@@ -18,7 +18,7 @@ class Path(object):
         self.start_dt = start_dt
         self.xy_list = []
         self.link_id_list = []
-
+    
     def add_point(self, x, y, link_id):
         self.xy_list.append((x, y))
         self.link_id_list.append(link_id)
@@ -57,12 +57,15 @@ class DataPreprocessor(object):
             os.path.join(self.data_dir, 'kor_event_days.json'))
 
     def _load_and_parse_data(self):
-
+            
         header = ['car_id', 'start_dt', 'seq_id', 'x', 'y', 'link_id']
         df = pd.read_csv(self.data_path, header=None,
                            delimiter=',', names=header, low_memory=False, 
                            dtype={'link_id': str})
-
+           
+        x_min, x_max = df['x'].min(), df['x'].max()
+        y_min, y_max = df['y'].min(), df['y'].max()
+        
         paths_by_car = dict()
 
         prev_car_id, prev_start_dt = '', 0
@@ -82,7 +85,9 @@ class DataPreprocessor(object):
                 paths_by_car[row.car_id].append(new_path)
 
             this_path = paths_by_car[row.car_id][-1]
-            this_path.add_point(row.x, row.y, row.link_id)
+            x = (row.x - x_min) / (x_max - x_min)
+            y = (row.y - y_min) / (y_max - y_min)
+            this_path.add_point(x, y, row.link_id)
 
             prev_car_id, prev_start_dt = row.car_id, row.start_dt
 
