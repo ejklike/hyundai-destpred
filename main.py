@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+from itertools import product
 import time
 import os
 
@@ -34,7 +35,7 @@ def train(car_id, proportion, dest_term):
     print('experimental setting:')
     print('  - proportion of path: {}%'.format(100 * proportion))
     print('  - destination: ', end='')
-    print('the final.' if dest_term == -1 else dest_term + 'min later.')
+    print('the final.' if dest_term == -1 else str(dest_term) + 'min later.')
     print('-'*50)
     
 
@@ -114,7 +115,7 @@ def train(car_id, proportion, dest_term):
             saver.save(sess, FLAGS.train_dir, global_step=step)
             print('Done training for %d epochs, %d steps.' % (FLAGS.num_epochs, step))
         except KeyboardInterrupt:
-            print('>> Traing stopped by user!')
+            print('>> Training stopped by user!')
         finally:
             # VIZ
             paths, preds, dests = sess.run([path_tst, pred_tst, dest_tst])
@@ -156,19 +157,54 @@ def main(_):
 
     # load trn and tst data
     car_id_list = [5, 9, 14, 29, 50, 72, 74, 100]
+
+    # Model Configuation
+    # meta_embedding_dim_list = [(1,10,4,2)]  # List of Tuple. holi, weekno, hour, weekday
+    # path_embedding_dim_list = [16]
+    # n_hidden_list = [(16)] # List of Tuple. e.g. [(128),(128, 256)]
+    is_rnn_list = [False, True]
+    # cell_type_list = ['rnn', 'lstm']
+    # bi_direction_list = [True, False]
+
+    # Experiment Configuration
     proportion_list = [0.2, 0.4, 0.6, 0.8]
     short_term_dest_list = [-1, 5]
+    use_meta_path = [(True, True), (True, False), (False, True)]
 
-    car_id = 72# car_id_list[0]
-    proportion = proportion_list[-1]
-    dest_term = short_term_dest_list[0]
+    for params in product(car_id_list, 
+                          is_rnn_list,
+                          proportion_list, short_term_dest_list, use_meta_path):
 
-    # train
-    if tf.gfile.Exists(FLAGS.train_dir):
-        tf.gfile.DeleteRecursively(FLAGS.train_dir)
-    tf.gfile.MakeDirs(FLAGS.train_dir)
-    train(car_id, proportion, dest_term)
+        car_id = params[0]
 
+        FLAGS.is_rnn = params[1]
+        if FLAGS.is_rnn:
+            FLAGS.RNN_architecture = dict()
+        else:
+            FLAGS.ANN_architecture = dict()
+
+        proportion = params[2]
+        dest_term = params[3] 
+        
+        model_type = 'RNN' if FLAGS.is_rnn else 'ANN'
+        
+        use_meta = 'META' if params[4][0] else ''
+        use_path = 'PATH' if params[4][1] else ''
+        FLAGS.feature_set = use_meta + use_path
+        
+        # Directory where to write event logs and checkpoint.
+        if FLAGS.feature_set is 'META':
+            FLAGS.train_dir = './tf_logs/VIN_{:03}_{}_{}_y{}/'.format(car_id, FLAGS.feature_set,
+                                                              proportion, dest_term)
+        else:
+            FLAGS.train_dir = './tf_logs/VIN_{:03}_{}_{}_{}_y{}/'.format(car_id, FLAGS.feature_set,
+                                                          model_type, proportion, dest_term)
+        # train
+        if tf.gfile.Exists(FLAGS.train_dir):
+            tf.gfile.DeleteRecursively(FLAGS.train_dir)
+            
+        tf.gfile.MakeDirs(FLAGS.train_dir)
+        train(car_id, proportion, dest_term)
 
 if __name__ == '__main__':
     # parse input parameters
@@ -189,8 +225,8 @@ if __name__ == '__main__':
     FLAGS.preprocess = args.preprocess
 
     # Data Type
-    FLAGS.batch_size = 1000
-    FLAGS.num_epochs = 10000
+    FLAGS.batch_size = 48
+    FLAGS.num_epochs = 3
 
     # Model Type
     FLAGS.is_rnn = True
@@ -202,10 +238,6 @@ if __name__ == '__main__':
     FLAGS.lr = args.lr
     FLAGS.log_frequency = args.log_freq
     # Number of batches to run.
-    FLAGS.max_steps = 2000
-
-    # Directory where to write event logs and checkpoint.
-    FLAGS.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    FLAGS.train_dir = './tf_logs/{}'.format(FLAGS.timestamp)
+    FLAGS.max_steps = 20
     
     tf.app.run()

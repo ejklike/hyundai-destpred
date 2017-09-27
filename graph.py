@@ -70,11 +70,17 @@ def inputs(paths, metas, dests, test=False):
         def resize_to_2k(path, k):
             """remove middle portion of the given path (np array)
             """
-            return np.concatenate([path[:k], path[-k:]], axis=0)
+            if len(path) < k:
+                num_to_pad = k - (len(path) + 1) // 2
+                front = np.concatenate((np.tile(path[0], (num_to_pad, 1)), path[:(len(path)+1)//2]))
+                back = np.concatenate((path[(len(path))//2:], np.tile(path[-1], (num_to_pad, 1))))
+                return np.concatenate([front, back], axis=0)
+            else:
+                return np.concatenate([path[:k], path[-k:]], axis=0)
         
-        paths = [resize_to_2k(path, FLAGS.k) for p in paths]
+        paths = [resize_to_2k(p, k) for p in paths]
         paths = np.stack(paths, axis=0)
-    
+
     dests = np.array(dests)
 
     num_epochs = 1 if test else FLAGS.num_epochs
@@ -114,7 +120,7 @@ def inference(paths, metas):
             n_unit=16, 
             bi_direction=False)
     else:
-        nn_inputs = tf.reshape(paths, shape=[FLAGS.batch_size, -1])
+        nn_inputs = tf.reshape(paths, shape=[-1, 20 * 2]) # TODO: FLAGS.k * 2
         path_embedding = _fully_conn_layer(nn_inputs, n_hidden, name='path_embedding')
 
     # META embedding
@@ -149,9 +155,9 @@ def inference(paths, metas):
 
 
 def loss(preds, dests):
-  return tf.losses.mean_squared_error(dests, preds, scope='mse_loss')
+    return tf.losses.mean_squared_error(dests, preds, scope='mse_loss')
 
 def train(total_loss, global_step):
-  opt = tf.train.RMSPropOptimizer(FLAGS.lr)
-  train_op = opt.minimize(total_loss, global_step=global_step)
-  return train_op
+    opt = tf.train.RMSPropOptimizer(FLAGS.lr)
+    train_op = opt.minimize(total_loss, global_step=global_step)
+    return train_op
