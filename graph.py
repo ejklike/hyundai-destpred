@@ -4,6 +4,7 @@ from tensorflow.contrib import rnn
 
 FLAGS = tf.app.flags.FLAGS
 
+
 def _activation_summary(x):
     tf.summary.histogram(x.op.name + '/activations', x)
     tf.summary.scalar(x.op.name + '/sparsity', tf.nn.zero_fraction(x))
@@ -14,6 +15,7 @@ def _variable_on_cpu(name, shape):
     with tf.device('/cpu:0'):
         var = tf.get_variable(name, shape, initializer=initializer, dtype=tf.float32)
     return var
+
 
 def _fully_conn_layer(x, out_dim, activation_fn=tf.nn.relu, name=None):
     name = 'fully_connected' if name is None else name
@@ -35,7 +37,7 @@ def rnn_last_output(rnn_input, cell_type='rnn', n_unit=16, bi_direction=False):
         lstm=rnn.BasicLSTMCell
     )
     rnn_cell = cell_dict[cell_type](n_unit)
-    
+
     if bi_direction:
         outputs, _ = rnn.static_rnn(
             rnn_cell, rnn_input, dtype=tf.float32)
@@ -54,6 +56,7 @@ def inputs(paths, metas, dests, test=False):
     """
     if FLAGS.is_rnn:
         max_length = max(p.shape[0] for p in paths)
+
         def resize_by_padding(path, target_length):
             """add zero padding prior to the given path (np array)
             """
@@ -61,7 +64,7 @@ def inputs(paths, metas, dests, test=False):
             pad_width = ((target_length - path_length, 0), (0, 0))
             return np.lib.pad(path, pad_width,
                               'constant', constant_values=0)
-        
+
         paths = [resize_by_padding(p, max_length) for p in paths]
         paths = np.stack(paths, axis=0)
 
@@ -72,12 +75,12 @@ def inputs(paths, metas, dests, test=False):
             """
             if len(path) < k:
                 num_to_pad = k - (len(path) + 1) // 2
-                front = np.concatenate((np.tile(path[0], (num_to_pad, 1)), path[:(len(path)+1)//2]))
-                back = np.concatenate((path[(len(path))//2:], np.tile(path[-1], (num_to_pad, 1))))
+                front = np.concatenate((np.tile(path[0], (num_to_pad, 1)), path[:(len(path) + 1) // 2]))
+                back = np.concatenate((path[(len(path)) // 2:], np.tile(path[-1], (num_to_pad, 1))))
                 return np.concatenate([front, back], axis=0)
             else:
                 return np.concatenate([path[:k], path[-k:]], axis=0)
-        
+
         paths = [resize_to_2k(p, FLAGS.k) for p in paths]
         paths = np.stack(paths, axis=0)
 
@@ -94,16 +97,16 @@ def inputs(paths, metas, dests, test=False):
     if test is False:
         path, meta, dest = tf.train.slice_input_producer(
             [paths, metas, dests], num_epochs=num_epochs)
-        
+
         # the maximum number of elements in the queue
         capacity = 20 * FLAGS.batch_size
         paths, metas, dests = tf.train.batch(
-            [path, meta, dest], 
-            batch_size=FLAGS.batch_size, 
+            [path, meta, dest],
+            batch_size=FLAGS.batch_size,
             num_threads=FLAGS.num_threads,
             capacity=capacity,
             allow_smaller_final_batch=allow_smaller_final_batch)
-    
+
     return paths, metas, dests
 
 
@@ -115,9 +118,9 @@ def inference(paths, metas):
     if FLAGS.is_rnn:
         rnn_inputs = tf.unstack(paths, axis=1)
         path_embedding = rnn_last_output(
-            rnn_inputs, 
-            cell_type='lstm', 
-            n_unit=16, 
+            rnn_inputs,
+            cell_type='lstm',
+            n_unit=16,
             bi_direction=False)
     else:
         nn_inputs = tf.reshape(paths, shape=[-1, 4 * FLAGS.k])
@@ -125,7 +128,7 @@ def inference(paths, metas):
 
     # META embedding
     holiday, weekno, hour, weekday = tf.split(metas, metas.shape[1], axis=1)
-    
+
     holi_W = _variable_on_cpu('holiday_embedding', [2, 1])
     holiday_embedding = tf.nn.embedding_lookup(holi_W, holiday)
     holiday_embedding = tf.squeeze(holiday_embedding, axis=1)
@@ -143,12 +146,20 @@ def inference(paths, metas):
     weekday_embedding = tf.squeeze(weekday_embedding, axis=1)
 
     # CONCAT
-    concatenation = tf.concat([path_embedding, 
-                               holiday_embedding, 
-                               weekno_embedding, 
-                               hour_embedding,
-                               weekday_embedding], axis=1, name='concat')
-    
+    if FLAGS.feature_set is 'META':
+        concatenation = tf.concat([holiday_embedding,
+                                   weekno_embedding,
+                                   hour_embedding,
+                                   weekday_embedding], axis=1, name='concat')
+    elif FLAGS.feature_set is 'PATH':
+        concatenation = tf.concat([path_embedding], axis=1, name='concat')
+    else:
+        concatenation = tf.concat([path_embedding,
+                                   holiday_embedding,
+                                   weekno_embedding,
+                                   hour_embedding,
+                                   weekday_embedding], axis=1, name='concat')
+
     # FINAL
     h = _fully_conn_layer(concatenation, n_hidden, name='final_dense')
     return _fully_conn_layer(h, 2, activation_fn=None, name='last_linear')
@@ -156,6 +167,7 @@ def inference(paths, metas):
 
 def loss(preds, dests):
     return tf.losses.mean_squared_error(dests, preds, scope='mse_loss')
+
 
 def train(total_loss, global_step):
     opt = tf.train.RMSPropOptimizer(FLAGS.lr)

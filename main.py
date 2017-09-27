@@ -37,13 +37,12 @@ def train(car_id, proportion, dest_term):
     log.info('  - proportion of path: {}%'.format(100 * proportion))
     # log.info('  - destination: ', end='')
     log.info('the final.' if dest_term == -1 else str(dest_term) + 'min later.')
-    print('-'*50)
-    
+    print('-' * 50)
 
     # model
     with tf.Graph().as_default():
         global_step = tf.contrib.framework.get_or_create_global_step()
-        
+
         path_trn, meta_trn, dest_trn = graph.inputs(input_path_trn, meta_trn, dest_trn, test=False)
         path_tst, meta_tst, dest_tst = graph.inputs(input_path_tst, meta_tst, dest_tst, test=True)
 
@@ -90,19 +89,20 @@ def train(car_id, proportion, dest_term):
                 start_time = time.time()
 
                 # Run one step of the model.
-                _, loss_value = sess.run([train_op, loss_trn])
+                _, loss_trn_value = sess.run([train_op, loss_trn])
 
                 duration = time.time() - start_time
 
                 # Write the summaries and print an overview fairly often.
                 if step % FLAGS.log_frequency == 0:
                     examples_per_sec = FLAGS.batch_size / duration
+                    loss_tst_value = sess.run(loss_tst)
 
                     # Print status to stdout.
                     print(
                         'Step %d: trn_loss = %.4f, tst_loss = %.4f'
                         '(%.3f sec/batch; %.1f examples/sec)'
-                        % (step, loss_value, sess.run(loss_tst),
+                        % (step, loss_trn_value, loss_tst_value,
                            duration, examples_per_sec)
                     )
 
@@ -119,13 +119,24 @@ def train(car_id, proportion, dest_term):
             print('>> Training stopped by user!')
         finally:
             # VIZ
+            _VIZ_IMG_PATH = './trash'
+            if not os.path.exists(_VIZ_IMG_PATH):
+                os.makedirs(_VIZ_IMG_PATH)
             paths, preds, dests = sess.run([path_tst, pred_tst, dest_tst])
             print(paths.shape, preds.shape, dests.shape)
             dest_term = 'F' if dest_term == -1 else str(dest_term)
+            if FLAGS.feature_set == 'META':
+                model_type = '-'
+            else:
+                model_type = FLAGS.model_type
             for i in range(10):
-                fname = './trash/{}-{}-{}-{}.png'.format(car_id, proportion, dest_term, i)
+                fname = '{}/{}-{}-{}-{}-{}-{}.png'.format(_VIZ_IMG_PATH, car_id, FLAGS.feature_set, model_type, proportion, dest_term, i)
                 visualize_predicted_destination(
                     paths[i], dests[i], preds[i], fname=fname)
+
+            # save to csv
+            FLAGS.record_fname = 'result_summary.csv'
+            save_results(step, car_id, proportion, dest_term, loss_trn_value, loss_tst_value)
 
             # When done, ask the threads to stop.
             coord.request_stop()
@@ -135,6 +146,29 @@ def train(car_id, proportion, dest_term):
         sess.close()
 
 
+def save_results(iter, car_id, proportion, dest_type, trn_loss, tst_loss):
+    # record file existence check
+    if not os.path.exists(FLAGS.record_fname):
+        with open(FLAGS.record_fname, 'w') as fout:
+            fout.write('car_id,feature_set,model_type,proportion,dest_type,iter,trn_loss,tst_loss')
+            fout.write('\n')
+
+    with open(FLAGS.record_fname, 'a') as fout:
+        fout.write('{},'.format(car_id))
+        fout.write('{},'.format(FLAGS.feature_set))
+        if FLAGS.feature_set == 'META':
+            model_type = '-'
+        else:
+            model_type = FLAGS.model_type
+        fout.write('{},'.format(model_type))
+        fout.write('{},'.format(proportion))
+        fout.write('{},'.format(dest_type))
+        fout.write('{},'.format(iter))
+        fout.write('{},'.format(trn_loss))
+        fout.write('{}'.format(tst_loss))
+        fout.write('\n')
+
+
 def main(_):
     # prepare pkl data
     if not os.path.exists(DATA_DIR):
@@ -142,8 +176,8 @@ def main(_):
     if FLAGS.preprocess:
         data_preprocessor = DataPreprocessor('dest_route_pred_sample.csv')
         data_preprocessor.process_and_save(save_dir=DATA_DIR)
-    
-    #      (1) 주행경로 길이의 평균
+
+    # (1) 주행경로 길이의 평균
     #      (2) 주행 횟수
     #
     #       (1)    (2)
@@ -172,7 +206,7 @@ def main(_):
     short_term_dest_list = [-1, 5]
     use_meta_path = [(True, True), (True, False), (False, True)]
 
-    for params in product(car_id_list, 
+    for params in product(car_id_list,
                           is_rnn_list,
                           proportion_list, short_term_dest_list, use_meta_path):
 
@@ -185,27 +219,28 @@ def main(_):
             FLAGS.ANN_architecture = dict()
 
         proportion = params[2]
-        dest_term = params[3] 
-        
-        model_type = 'RNN' if FLAGS.is_rnn else 'ANN'
-        
+        dest_term = params[3]
+
+        FLAGS.model_type = 'RNN' if FLAGS.is_rnn else 'ANN'
+
         use_meta = 'META' if params[4][0] else ''
         use_path = 'PATH' if params[4][1] else ''
         FLAGS.feature_set = use_meta + use_path
-        
+
         # Directory where to write event logs and checkpoint.
         if FLAGS.feature_set is 'META':
             FLAGS.train_dir = './tf_logs/VIN_{:03}_{}_{}_y{}/'.format(car_id, FLAGS.feature_set,
-                                                              proportion, dest_term)
+                                                                      proportion, dest_term)
         else:
             FLAGS.train_dir = './tf_logs/VIN_{:03}_{}_{}_{}_y{}/'.format(car_id, FLAGS.feature_set,
-                                                          model_type, proportion, dest_term)
+                                                                         FLAGS.model_type, proportion, dest_term)
         # train
         if tf.gfile.Exists(FLAGS.train_dir):
             tf.gfile.DeleteRecursively(FLAGS.train_dir)
-            
+
         tf.gfile.MakeDirs(FLAGS.train_dir)
         train(car_id, proportion, dest_term)
+
 
 if __name__ == '__main__':
     # parse input parameters
@@ -226,22 +261,22 @@ if __name__ == '__main__':
     FLAGS.preprocess = args.preprocess
 
     # Data Type
-    FLAGS.batch_size = 48
-    FLAGS.num_epochs = 3
+    FLAGS.batch_size = 64
+    FLAGS.num_epochs = 100
 
     # Model Type
     FLAGS.is_rnn = True
-    
+
     # Padding
     FLAGS.k = 10
-    
+
     # GPU setting
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_no
-    
+
     # Learning params
     FLAGS.lr = args.lr
     FLAGS.log_frequency = args.log_freq
     # Number of batches to run.
-    FLAGS.max_steps = 20
-    
+    FLAGS.max_steps = 50
+
     tf.app.run()
