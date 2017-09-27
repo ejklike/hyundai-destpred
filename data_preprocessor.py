@@ -20,7 +20,7 @@ class Path(object):
         self.link_id_list = []
     
     def add_point(self, x, y, link_id):
-        self.xy_list.append((x, y))
+        self.xy_list.append([x, y])
         self.link_id_list.append(link_id)
 
     def get_partial_path_and_short_term_dest(self, 
@@ -38,8 +38,10 @@ class Path(object):
             is_valid_dest = short_term_dest_idx < path_length
 
         if is_valid_dest:
-            partial_path = self.xy_list[:partial_path_length]
-            short_term_dest = self.xy_list[short_term_dest_idx]
+            partial_path = np.array(
+                self.xy_list[:partial_path_length])
+            short_term_dest = np.array(
+                self.xy_list[short_term_dest_idx])
             return partial_path, short_term_dest
         else:
             return None
@@ -54,7 +56,8 @@ class DataPreprocessor(object):
         self.data_dir = './data'
         self.data_path = os.path.join(self.data_dir, data_fname)
         self._meta_handler = MetaHandler(
-            os.path.join(self.data_dir, 'kor_event_days.json'))
+            os.path.join(self.data_dir, 'kor_event_days.json'))      
+
 
     def _load_and_parse_data(self):
             
@@ -100,28 +103,34 @@ class DataPreprocessor(object):
 
     def process_and_save(self, save_dir):
 
-        proportion_of_path_list = [0.2, 0.4, 0.6, 0.8]
-        short_term_pred_min_list = [-1, 5] # -1 for final destination
-        train_ratio = 0.8
+        print('Starting data preprocessing.')
 
         # load data parsing results
         tmp_pkl_file = os.path.join(save_dir, 'tmp.p')
         if not os.path.exists(tmp_pkl_file):
+            print('Reading and parsing ...')
             paths_by_car = self._load_and_parse_data()
             pickle.dump(paths_by_car, open(tmp_pkl_file, 'wb'))
+            print('Saved to temp pkl file.')
         else:
+            print('Use existing pkl file...')
             paths_by_car = pickle.load(open(tmp_pkl_file, 'rb'))
+            
+
+        proportion_of_path_list = [0.2, 0.4, 0.6, 0.8]
+        short_term_pred_min_list = [-1, 5] # -1 for final destination
+        train_ratio = 0.8
 
         # preprocess and save
         for car_id, paths in tqdm(paths_by_car.items()):
             for proportion, dest_term in product(proportion_of_path_list, 
                                                  short_term_pred_min_list):
                 # data to save
-                path_list, meta_list, dest_list = [], [], []
+                path_list, meta_list, dest_list, dt_list = [], [], [], []
 
                 for path in paths:
-                    # delete initial point
-                    path.xy_list = path.xy_list[1:]
+                    # delete the initial point
+                    path.xy_list.pop(0)
 
                     # exclude too short path
                     if len(path.xy_list) < 10:
@@ -137,6 +146,9 @@ class DataPreprocessor(object):
                         path_list.append(partial_path)
                         meta_list.append(meta_feature)
                         dest_list.append(short_term_dest)
+                        dt_list.append(path.start_dt)
+                        # print(car_id, proportion, dest_term)
+                        # print(path.xy_list, partial_path, short_term_dest)
 
                 # split data into train and test
                 data_size = len(path_list)
@@ -146,11 +158,13 @@ class DataPreprocessor(object):
                     path=path_list[:train_size],
                     meta=meta_list[:train_size],
                     dest=dest_list[:train_size],
+                    dt=dt_list[:train_size],
                 )
                 tst_data = dict(
                     path=path_list[train_size:],
                     meta=meta_list[train_size:],
                     dest=dest_list[train_size:],
+                    dt=dt_list[train_size:],
                 )
                 
                 # save the results
