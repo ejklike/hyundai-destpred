@@ -123,19 +123,20 @@ class DataPreprocessor(object):
 
         # preprocess and save
         for car_id, paths in tqdm(paths_by_car.items()):
+
+            # delete the initial point
+            for path in paths:
+                path.xy_list.pop(0)
+
+            # exclude too short path
+            paths = [path for path in paths if len(path.xy_list) < 10]
+
             for proportion, dest_term in product(proportion_of_path_list, 
                                                  short_term_pred_min_list):
                 # data to save
                 path_list, meta_list, dest_list, dt_list = [], [], [], []
 
                 for path in paths:
-                    # delete the initial point
-                    path.xy_list.pop(0)
-
-                    # exclude too short path
-                    if len(path.xy_list) < 10:
-                        continue
-
                     result = path.get_partial_path_and_short_term_dest(
                         proportion, dest_term)
 
