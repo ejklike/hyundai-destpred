@@ -231,6 +231,9 @@ if __name__ == '__main__':
     # Model Type
     FLAGS.is_rnn = True
     
+    # Padding
+    FLAGS.k = 10
+    
     # GPU setting
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_no
     

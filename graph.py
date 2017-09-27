@@ -66,7 +66,6 @@ def inputs(paths, metas, dests, test=False):
         paths = np.stack(paths, axis=0)
 
     else:
-        k = 10
         def resize_to_2k(path, k):
             """remove middle portion of the given path (np array)
             """
@@ -78,7 +77,7 @@ def inputs(paths, metas, dests, test=False):
             else:
                 return np.concatenate([path[:k], path[-k:]], axis=0)
         
-        paths = [resize_to_2k(p, k) for p in paths]
+        paths = [resize_to_2k(p, FLAGS.k) for p in paths]
         paths = np.stack(paths, axis=0)
 
     dests = np.array(dests)
@@ -120,7 +119,7 @@ def inference(paths, metas):
             n_unit=16, 
             bi_direction=False)
     else:
-        nn_inputs = tf.reshape(paths, shape=[-1, 20 * 2]) # TODO: FLAGS.k * 2
+        nn_inputs = tf.reshape(paths, shape=[-1, FLAGS.k])
         path_embedding = _fully_conn_layer(nn_inputs, n_hidden, name='path_embedding')
 
     # META embedding
