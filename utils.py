@@ -1,7 +1,13 @@
 import codecs
 import json
 from datetime import datetime, date
+import pickle
 
+import matplotlib
+# Force matplotlib to not use any Xwindows backend.
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+import numpy as np
 
 class MetaHandler(object):
     
@@ -59,3 +65,35 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
         dest_type='F' if dest_term == -1 else dest_term,
     )
     return file_name
+
+
+def load_data(fname):
+    data = pickle.load(open(fname, 'rb'))
+    path, meta, dest = data['path'], data['meta'], data['dest']
+    return path, meta, dest
+
+
+def visualize_path(x, fname=None):
+    plt.figure()
+    plt.scatter(x[0,0], x[0,1], c='g', marker='o')
+    plt.plot(x[:,0], x[:,1], c='g', marker='.')
+    plt.scatter(x[-1,0], x[-1,1], c='g', marker='x') # dest
+    if fname is None:
+        fname = datetime.now().strftime('%Y%m%d_%H%M%S')
+    plt.savefig(fname)
+    plt.close()
+
+
+def visualize_predicted_destination(x, y_true, y_pred, fname=None):
+    # remove zero paddings
+    path = x[np.sum(x, axis=1) != 0, :]
+
+    plt.figure()
+    plt.scatter(path[0,0], path[0,1], c='g', marker='o')
+    plt.plot(path[:,0], path[:,1], c='g', marker='.')
+    plt.scatter(y_true[0], y_true[1], c='g', marker='x') # true dest
+    plt.scatter(y_pred[0], y_pred[1], c='r', marker='x') # pred dest
+    if fname is None:
+        fname = datetime.now().strftime('%Y%m%d_%H%M%S')
+    plt.savefig(fname)
+    plt.close()
