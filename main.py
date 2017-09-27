@@ -9,6 +9,7 @@ import tensorflow as tf
 from data_preprocessor import DataPreprocessor
 import graph
 from utils import get_pkl_file_name, load_data, visualize_predicted_destination
+from log import log
 
 DATA_DIR = './data_pkl'
 
@@ -28,14 +29,14 @@ def train(car_id, proportion, dest_term):
     input_path_tst, meta_tst, dest_tst = load_data(fname_tst)
 
     print('-' * 50)
-    print('car_id:', car_id)
-    print('trn_data_size:', len(input_path_trn))
-    print('tst_data_size:', len(input_path_tst))
+    log.info('car_id:{}'.format(car_id))
+    log.info('trn_data_size:{}'.format(len(input_path_trn)))
+    log.info('tst_data_size:{}'.format(len(input_path_tst)))
     print('-' * 50)
-    print('experimental setting:')
-    print('  - proportion of path: {}%'.format(100 * proportion))
-    print('  - destination: ', end='')
-    print('the final.' if dest_term == -1 else str(dest_term) + 'min later.')
+    log.info('experimental setting:')
+    log.info('  - proportion of path: {}%'.format(100 * proportion))
+    # log.info('  - destination: ', end='')
+    log.info('the final.' if dest_term == -1 else str(dest_term) + 'min later.')
     print('-'*50)
     
 
