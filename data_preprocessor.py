@@ -129,7 +129,7 @@ class DataPreprocessor(object):
                 path.xy_list.pop(0)
 
             # exclude too short path
-            paths = [path for path in paths if len(path.xy_list) < 10]
+            paths = [path for path in paths if len(path.xy_list) >= 10]
 
             for proportion, dest_term in product(proportion_of_path_list, 
                                                  short_term_pred_min_list):
