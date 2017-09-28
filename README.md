@@ -21,13 +21,13 @@
 
 - 9월
   - [x] data_loader
-  - [ ] preprocessor
-  - [ ] baseline models: feed forward network
-  - [ ] initial models: recurrent neural network
+  - [x] preprocessor
+  - [x] baseline models: feed forward network
+  - [x] initial models: recurrent neural network
+  - [x] metadata embedding
 
 - 10월
   - [ ] structure engineering
   - [ ] hyperparameter tuning
-  - [ ] measure definition
 
 - ...TBD
