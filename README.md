@@ -27,6 +27,7 @@
   - [x] metadata embedding
 
 - 10월
+  - [ ] destination inference: one-shot prediction or averaging cluster centroids
   - [ ] structure engineering
   - [ ] hyperparameter tuning
 
