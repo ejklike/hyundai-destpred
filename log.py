@@ -15,12 +15,12 @@ ch.setLevel(logging.DEBUG)
 
 formatter = ColoredFormatter(
     "%(log_color)s[%(asctime)s] %(message)s",
-#    datefmt='%H:%M:%S.%f',
-    datefmt=None,
+    datefmt='%Y-%m-%d %H:%M:%S',
+    # datefmt=None,
     reset=True,
     log_colors={
         'DEBUG':    'cyan',
-        'INFO':     'white,bold',
+        'INFO':     'white',
         'INFOV':    'cyan,bold',
         'WARNING':  'yellow',
         'ERROR':    'red,bold',

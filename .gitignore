@@ -2,7 +2,9 @@ data
 data_pkl
 model
 trash
+viz
 tf_logs
 tf_models
+*.csv
 .vscode
 __pycache__

@@ -1,6 +1,6 @@
-import codecs
 import json
 from datetime import datetime, date
+import os
 import pickle
 
 import matplotlib
@@ -9,52 +9,13 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import numpy as np
 
-class MetaHandler(object):
-    
-    def __init__(self, event_data_fname):
-        self.holiday_set = self._load_holiday_set(event_data_fname)
-        
-    def _load_holiday_set(self, fname):
-        if fname == '-':
-            fp = codecs.getreader('utf-8')(sys.stdin)
-        else:
-            fp = codecs.open(fname, 'rb', encoding='utf-8')
-        lines = fp.read()
-        fp.close()
-
-        jdata = json.loads(lines)
-        
-        holiday_set = set()
-        for days in jdata['results']:
-            holiday_type = days['type']
-            # h: 법정공휴일, i: 대체 공휴일
-            if (holiday_type == 'h') or (holiday_type == 'i'):
-                year, month, day = int(days['year']), int(days['month']), int(days['day'])
-                holiday_set.add(date(year, month, day))
-        return holiday_set
-        
-    def _event_chk(self, start_dt):
-        return int(start_dt.date() in self.holiday_set)
-
-    def _hour_chk(self, start_dt):
-        return start_dt.hour
-
-    def _week_chk(self, start_dt):
-        return start_dt.weekday()
-    
-    def _week_num_chk(self, start_dt):
-        # Monday : 0 ~ Sunday : 6
-        return start_dt.isocalendar()[1]
-    
-    def convert_to_meta(self, start_dt):
-        """
-        input: start_dt ; 2006-01-10 13:56:16
-        output: meta data list [공휴일, 요일, 시간대, 주차]
-        """
-        start_dt = datetime.strptime(start_dt, '%Y-%m-%d %H:%M:%S')
-        
-        return [self._event_chk(start_dt), self._week_num_chk(start_dt),
-                self._hour_chk(start_dt), self._week_chk(start_dt)]
+def preprocess_data(data_dir=None):
+    assert data_dir is not None
+    # prepare pkl data
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+    data_preprocessor = DataPreprocessor('dest_route_pred_sample.csv')
+    data_preprocessor.process_and_save(save_dir=DATA_DIR)
 
 
 def get_pkl_file_name(car_id, proportion, dest_term, train=True):
@@ -62,15 +23,68 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
         train='train' if train else 'test',
         car_id = 'VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
         proportion=int(proportion*100),
-        dest_type='F' if dest_term == -1 else dest_term,
-    )
+        dest_type='F' if dest_term == -1 else dest_term)
     return file_name
 
 
-def load_data(fname):
-    data = pickle.load(open(fname, 'rb'))
-    path, meta, dest = data['path'], data['meta'], data['dest']
-    return path, meta, dest
+# def load_data(fname):
+#     """for old main module"""
+#     data = pickle.load(open(fname, 'rb'))
+#     path, meta, dest = data['path'], data['meta'], data['dest']
+#     return path, meta, dest
+
+
+def load_data(fname, k=0):
+  """
+  input data:
+      paths: list of path nparrays
+      metas: list of meta lists
+      dests: list of dest nparrays
+  output data:
+      paths: nparray of shape [data_size, ***]
+      metas: nparray of shape [data_size, meta_size]
+      dests: nparray of shape [data_size, 2]
+  """
+  data = pickle.load(open(fname, 'rb'))
+  paths, metas, dests = data['path'], data['meta'], data['dest']
+
+  if k == 0:
+    def resize_by_padding(path, target_length):
+      """add zero padding prior to the given path"""
+      path_length = path.shape[0]
+      pad_width = ((target_length - path_length, 0), (0, 0))
+      return np.lib.pad(path, pad_width, 'constant', constant_values=0)
+    
+    max_length = max(p.shape[0] for p in paths)
+    paths = [resize_by_padding(p, max_length) for p in paths]
+    paths = np.stack(paths, axis=0)
+
+  else:
+    def resize_to_2k(path, k):
+      """remove middle portion of the given path (np array)"""
+        # When the prefix of the trajectory contains less than
+        # 2k points, the first and last k points overlap
+        # (De Brébisson, Alexandre, et al., 2015)
+      if len(path) < k: 
+        front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
+      else:
+        front_k, back_k = path[:k], path[-k:]
+      return np.concatenate([front_k, back_k], axis=0)
+
+    paths = [resize_to_2k(p, k) for p in paths]
+    paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
+  
+  metas, dests = np.array(metas), np.array(dests)
+
+  return paths, metas, dests
+
+
+def record_results(fname, model_id, trn_rmse, tst_rmse):
+    if not os.path.exists(fname):
+        with open(fname, 'w') as fout:
+            fout.write('model_id,trn_rmse,tst_rmse\n')
+    with open(fname, 'a') as fout:
+        fout.write('{},{},{}\n'.format(model_id, trn_rmse, tst_rmse))
 
 
 def visualize_path(x, fname=None):
@@ -85,8 +99,13 @@ def visualize_path(x, fname=None):
 
 
 def visualize_predicted_destination(x, y_true, y_pred, fname=None):
-    # remove zero paddings
-    path = x[np.sum(x, axis=1) != 0, :]
+    if len(x.shape) == 1:
+        # from 1d to 2d data
+        path = x.reshape(-1, 2)
+    else:
+        # remove zero paddings
+        path = x[np.sum(x, axis=1) != 0, :]
+    # print(path.shape, y_true.shape, y_pred.shape)
 
     plt.figure()
     plt.scatter(path[0,0], path[0,1], c='g', marker='o')
