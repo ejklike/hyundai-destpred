@@ -6,5 +6,6 @@ viz
 tf_logs
 tf_models
 *.csv
+*.xlsx
 .vscode
 __pycache__
