@@ -39,9 +39,9 @@ def embed_meta(metas, params):
   holiday_lookup = tf.nn.embedding_lookup(holi_W, holiday, name='holiday_lookup')
   holiday_embedding = tf.squeeze(holiday_lookup, axis=1, name='holiday_embedding')
 
-  weekno_W = _variable_on_cpu('weekno_table', [53, 10])
-  weekno_lookup = tf.nn.embedding_lookup(weekno_W, weekno, name='weekno_lookup')
-  weekno_embedding = tf.squeeze(weekno_lookup, axis=1, name='weekno_embedding')
+  # weekno_W = _variable_on_cpu('weekno_table', [53, 10])
+  # weekno_lookup = tf.nn.embedding_lookup(weekno_W, weekno, name='weekno_lookup')
+  # weekno_embedding = tf.squeeze(weekno_lookup, axis=1, name='weekno_embedding')
 
   hour_W = _variable_on_cpu('hour_table', [24, 4])
   hour_lookup = tf.nn.embedding_lookup(hour_W, hour, name='hour_lookup')
@@ -52,7 +52,7 @@ def embed_meta(metas, params):
   weekday_embedding = tf.squeeze(weekday_lookup, axis=1, name='weekday_embedding')
 
   return tf.concat([holiday_embedding, 
-                    weekno_embedding, 
+                    # weekno_embedding, 
                     hour_embedding, 
                     weekday_embedding], axis=1)
 
@@ -97,7 +97,7 @@ def model_fn(features, labels, mode, params):
   # Define loss, optimizer, and train_op
   labels = tf.cast(labels, dtype=tf.float32)
   loss = tf.losses.mean_squared_error(labels, predictions)
-  optimizer = tf.train.GradientDescentOptimizer(
+  optimizer = tf.train.AdamOptimizer(
                                 learning_rate=params["learning_rate"])
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
