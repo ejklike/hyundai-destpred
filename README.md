@@ -64,6 +64,7 @@ optional arguments:
 
 - 10월
   - [x] applying dataset api and estimator class
+  - [ ] data augmentation
   - [ ] destination inference: one-shot prediction or averaging cluster centroids
   - [ ] structure engineering
   - [ ] hyperparameter tuning
