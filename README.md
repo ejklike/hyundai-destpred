@@ -7,8 +7,8 @@
 - Ubuntu 16.04
 - Python 3.6
 - Tensorflow 1.3.0
-
-- dependencies: `pip install tqdm colorlog`
+- dependencies
+  - `pip install tqdm colorlog`
 
 ## 데이터 위치/형식
 
