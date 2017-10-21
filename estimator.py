@@ -10,8 +10,7 @@ import tensorflow as tf
 from data_preprocessor import DataPreprocessor
 from log import log
 from models import model_fn
-from utils import (preprocess_data, 
-                   get_pkl_file_name, 
+from utils import (get_pkl_file_name, 
                    load_data, 
                    record_results,
                    visualize_predicted_destination)
@@ -22,6 +21,8 @@ FLAGS = None
 DATA_DIR = './data_pkl'
 MODEL_DIR = './tf_models'
 VIZ_DIR = './viz'
+
+RAW_DATA_FNAME = 'dest_route_pred_sample.csv'
 RECORD_FNAME = 'result.csv'
 
 tf.logging.set_verbosity(tf.logging.INFO)
@@ -96,9 +97,12 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params):
 
 
 def main(_):
-  # Preprocess data
+  # Preprocess data: convert to pkl data
   if FLAGS.preprocess:
-    preprocess_data(data_dir=DATA_DIR)
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+    data_preprocessor = DataPreprocessor(RAW_DATA_FNAME)
+    data_preprocessor.process_and_save(save_dir=DATA_DIR)
 
     # (1) 주행경로 길이의 평균
     # (2) 주행 횟수

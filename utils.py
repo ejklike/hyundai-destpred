@@ -9,14 +9,6 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import numpy as np
 
-def preprocess_data(data_dir=None):
-    assert data_dir is not None
-    # prepare pkl data
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-    data_preprocessor = DataPreprocessor('dest_route_pred_sample.csv')
-    data_preprocessor.process_and_save(save_dir=DATA_DIR)
-
 
 def get_pkl_file_name(car_id, proportion, dest_term, train=True):
     file_name = '{train}_{car_id}_proportion_{proportion}_y_{dest_type}.p'.format(
