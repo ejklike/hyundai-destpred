@@ -117,10 +117,10 @@ def main(_):
     #   9:  평균   평균
     #  74:  평균   평균
 
-  # load trn and tst data
+  # PARAM GRIDS
   car_id_list = [5, 9, 14, 29, 50, 72, 74, 100]
   proportion_list = [0.2, 0.4, 0.6, 0.8]
-  short_term_dest_list = [-1]#, 5]
+  short_term_dest_list = [-1, 5]
   use_meta_path = [(True, True), (True, False), (False, True)]
 
   if FLAGS.model_type == 'dnn':
@@ -130,20 +130,45 @@ def main(_):
     k_list = [0]
     bi_direction_list = [True, False]
 
+  path_embedding_dim_list = [16]
+  n_hidden_layer_list = [1]
+
   param_product = product(car_id_list, 
                           proportion_list, 
                           short_term_dest_list, 
                           use_meta_path,
                           k_list,
-                          bi_direction_list)
+                          bi_direction_list,
+                          path_embedding_dim_list,
+                          n_hidden_layer_list)
+  param_product_size = np.sum([len(car_id_list),
+                               len(proportion_list),
+                               len(short_term_dest_list),
+                               len(use_meta_path),
+                               len(k_list),
+                               len(bi_direction_list), 
+                               len(path_embedding_dim_list), 
+                               len(n_hidden_layer_list)])
 
-  for params in param_product:
+  for i, params in enumerate(param_product):
     car_id, proportion, dest_term = params[:3]
     use_meta, use_path = params[3]
-    k, bi_direction = params[4:]
+    k, bi_direction, path_embedding_dim, n_hidden_layer = params[4:]
     
-    path_embedding_dim = 16 if use_path else 0
-    n_hidden_layer=1
+    # if we do not use path input,
+    # some param grids are not needed.
+    if use_path is False:
+      if proportion > proportion_list[0]:
+        continue
+      if (FLAGS.model_type == 'dnn') and (k > k_list[0]):
+        continue
+      # this param is useless
+      path_embedding_dim = 0
+
+    # tmp
+    if (use_meta) and (use_path) and (proportion > 0.2):
+      if car_id < 100 or proportion < 0.8:
+        continue
 
     model_params = dict(
         learning_rate=FLAGS.learning_rate,
@@ -174,8 +199,9 @@ def main(_):
                                                  path_embedding_dim, 
                                                  n_hidden_layer)
 
-    # TODO: some params shoud be added...
-    log.warning('=' * 50)
+    log.warning('=' * 50, '{} / {} ({:.1f}%)'.format(i, 
+                                                     param_product_size, 
+                                                     i / param_product_size))
     log.warning('model_id: ' + model_id)
     log.warning('Using params: ' + str(model_params))
 

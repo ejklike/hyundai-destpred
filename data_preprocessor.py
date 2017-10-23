@@ -137,8 +137,9 @@ class DataPreprocessor(object):
                 paths_by_car[row.car_id].append(new_path)
 
             this_path = paths_by_car[row.car_id][-1]
+            # TODO: scaling with same denomiantor (100.11	17.95)
             x = (row.x - x_min) / (x_max - x_min)
-            y = (row.y - y_min) / (y_max - y_min)
+            y = (row.y - y_min) / (x_max - x_min)
             this_path.add_point(x, y, row.link_id)
 
             prev_car_id, prev_start_dt = row.car_id, row.start_dt

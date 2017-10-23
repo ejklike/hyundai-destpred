@@ -79,15 +79,15 @@ def record_results(fname, model_id, trn_rmse, tst_rmse):
         fout.write('{},{},{}\n'.format(model_id, trn_rmse, tst_rmse))
 
 
-def visualize_path(x, fname=None):
-    plt.figure()
-    plt.scatter(x[0,0], x[0,1], c='g', marker='o')
-    plt.plot(x[:,0], x[:,1], c='g', marker='.')
-    plt.scatter(x[-1,0], x[-1,1], c='g', marker='x') # dest
-    if fname is None:
-        fname = datetime.now().strftime('%Y%m%d_%H%M%S')
-    plt.savefig(fname)
-    plt.close()
+# def visualize_path(x, fname=None):
+#     plt.figure()
+#     plt.scatter(x[0,0], x[0,1], c='g', marker='o')
+#     plt.plot(x[:,0], x[:,1], c='g', marker='.')
+#     plt.scatter(x[-1,0], x[-1,1], c='g', marker='x') # dest
+#     if fname is None:
+#         fname = datetime.now().strftime('%Y%m%d_%H%M%S')
+#     plt.savefig(fname)
+#     plt.close()
 
 
 def visualize_predicted_destination(x, y_true, y_pred, fname=None):
@@ -106,5 +106,8 @@ def visualize_predicted_destination(x, y_true, y_pred, fname=None):
     plt.scatter(y_pred[0], y_pred[1], c='r', marker='x') # pred dest
     if fname is None:
         fname = datetime.now().strftime('%Y%m%d_%H%M%S')
+    axes = plt.gca()
+    axes.set_xlim([0, 1])
+    axes.set_ylim([0, 1])
     plt.savefig(fname)
     plt.close()
