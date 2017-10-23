@@ -154,7 +154,7 @@ def main(_):
     car_id, proportion, dest_term = params[:3]
     use_meta, use_path = params[3]
     k, bi_direction, path_embedding_dim, n_hidden_layer = params[4:]
-    
+
     # If we do not use path input,
     # some param grids are not needed.
     if use_path is False:
@@ -194,9 +194,9 @@ def main(_):
                                                  path_embedding_dim, 
                                                  n_hidden_layer)
 
-    log.warning('=' * 50, '{} / {} ({:.1f}%)'.format(i, 
-                                                     param_product_size, 
-                                                     i / param_product_size))
+    log.warning('=' * 30 + '{} / {} ({:.1f}%)'.format(i, 
+                                                      param_product_size, 
+                                                      i / param_product_size) + '=' * 30)
     log.warning('model_id: ' + model_id)
     log.warning('Using params: ' + str(model_params))
 
