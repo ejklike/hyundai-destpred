@@ -155,7 +155,7 @@ def main(_):
     use_meta, use_path = params[3]
     k, bi_direction, path_embedding_dim, n_hidden_layer = params[4:]
     
-    # if we do not use path input,
+    # If we do not use path input,
     # some param grids are not needed.
     if use_path is False:
       if proportion > proportion_list[0]:
@@ -164,11 +164,6 @@ def main(_):
         continue
       # this param is useless
       path_embedding_dim = 0
-
-    # tmp
-    if (use_meta) and (use_path) and (proportion > 0.2):
-      if car_id < 100 or proportion < 0.8:
-        continue
 
     model_params = dict(
         learning_rate=FLAGS.learning_rate,
