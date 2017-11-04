@@ -12,8 +12,16 @@ from tqdm import tqdm
 from utils import get_pkl_file_name
 
 
+def global_latitude_convertor(x):
+    return (x + 600) / (-19)
+
+
+def global_longitude_convertor(y):
+    return (y - 660) / (5)
+
+
 class MetaHandler(object):
-    
+
     def __init__(self, event_data_fname):
         self.holiday_set = self._load_holiday_set(event_data_fname)
         
@@ -35,7 +43,7 @@ class MetaHandler(object):
                 year, month, day = int(days['year']), int(days['month']), int(days['day'])
                 holiday_set.add(date(year, month, day))
         return holiday_set
-        
+
     def _event_chk(self, start_dt):
         return int(start_dt.date() in self.holiday_set)
 
@@ -104,8 +112,7 @@ class DataPreprocessor(object):
     def __init__(self, data_fname):
         self.data_dir = './data'
         self.data_path = os.path.join(self.data_dir, data_fname)
-        self._meta_handler = MetaHandler(
-            os.path.join(self.data_dir, 'kor_event_days.json'))      
+        self._meta_handler = MetaHandler('kor_event_days.json')
 
 
     def _load_and_parse_data(self):
@@ -114,9 +121,6 @@ class DataPreprocessor(object):
         df = pd.read_csv(self.data_path, header=None,
                            delimiter=',', names=header, low_memory=False, 
                            dtype={'link_id': str})
-           
-        x_min, x_max = df['x'].min(), df['x'].max()
-        y_min, y_max = df['y'].min(), df['y'].max()
         
         paths_by_car = dict()
 
@@ -137,10 +141,9 @@ class DataPreprocessor(object):
                 paths_by_car[row.car_id].append(new_path)
 
             this_path = paths_by_car[row.car_id][-1]
-            # scaling with same denomiantor prev: 
-            # (x, y) = (100.11, 17.95) ==> new: 100.11!!!
-            x = (row.x - x_min) / (x_max - x_min)
-            y = (row.y - y_min) / (x_max - x_min)
+            # scaling x and y to the original scale of latitude and longitude system
+            x = global_latitude_convertor(row.x)
+            y = global_longitude_convertor(row.y)
             this_path.add_point(x, y, row.link_id)
 
             prev_car_id, prev_start_dt = row.car_id, row.start_dt
@@ -148,6 +151,7 @@ class DataPreprocessor(object):
             progress_msg = '\r---Progress...{:10}/{}, num_cars={:3}'
             print(progress_msg.format(i + 1, df.shape[0], len(paths_by_car)),
                   end='', flush=True)
+
         print('')
         return paths_by_car
 
@@ -158,13 +162,14 @@ class DataPreprocessor(object):
 
         # load data parsing results
         tmp_pkl_file = os.path.join(save_dir, 'tmp.p')
+        print('Check the existence of {} ...'.format(tmp_pkl_file))
         if not os.path.exists(tmp_pkl_file):
-            print('Reading and parsing ...')
+            print('Reading and parsing raw data ...')
             paths_by_car = self._load_and_parse_data()
             pickle.dump(paths_by_car, open(tmp_pkl_file, 'wb'))
             print('Saved to temp pkl file.')
         else:
-            print('Use existing pkl file...')
+            print('Use existing pkl file that already parsed.')
             paths_by_car = pickle.load(open(tmp_pkl_file, 'rb'))
             
 

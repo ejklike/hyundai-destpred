@@ -1,5 +1,5 @@
 import argparse
-from itertools import product
+from itertools import islice, product
 import sys
 import os
 import pickle
@@ -10,7 +10,8 @@ import tensorflow as tf
 from data_preprocessor import DataPreprocessor
 from log import log
 from models import model_fn
-from utils import (get_pkl_file_name, 
+from utils import (maybe_exist,
+                   get_pkl_file_name, 
                    load_data, 
                    record_results,
                    visualize_predicted_destination)
@@ -28,8 +29,7 @@ RECORD_FNAME = 'result.csv'
 tf.logging.set_verbosity(tf.logging.INFO)
 
 
-def train_and_eval(car_id, proportion, dest_term, model_id, params):
-
+def train_and_eval(car_id, proportion, dest_term, model_id, params, viz=False):
   # Load datasets
   fname_trn = os.path.join(
       DATA_DIR,
@@ -41,6 +41,17 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params):
   path_trn, meta_trn, dest_trn = load_data(fname_trn, k=params['k'])
   path_tst, meta_tst, dest_tst = load_data(fname_tst, k=params['k'])
   log.info('trn_data_size, tst_data_size: ' + str(path_trn.shape) + ', ' + str(path_tst.shape))
+
+  print(path_trn[0], path_tst[0])
+
+  # data for feeding to the graph
+  input_dict_trn, input_dict_tst = {}, {}
+  if params['use_meta']:
+    input_dict_trn['meta'] = meta_trn
+    input_dict_tst['meta'] = meta_tst
+  if params['use_path']:
+    input_dict_trn['path'] = path_trn
+    input_dict_tst['path'] = path_tst
 
   # Instantiate Estimator
   model_dir = os.path.join(MODEL_DIR, model_id)
@@ -56,7 +67,7 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params):
   # Train
   if FLAGS.train:
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={'path': path_trn, 'meta': meta_trn},
+        x=input_dict_trn,
         y=dest_trn,
         batch_size=path_trn.shape[0],
         num_epochs=None,
@@ -65,12 +76,12 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params):
 
   # Eval
   eval_input_fn_trn = tf.estimator.inputs.numpy_input_fn(
-      x={'path': path_trn, 'meta': meta_trn},
+      x=input_dict_trn,
       y=dest_trn,
       num_epochs=1,
       shuffle=False)
   eval_input_fn_tst = tf.estimator.inputs.numpy_input_fn(
-      x={'path': path_tst, 'meta': meta_tst},
+      x=input_dict_tst,
       y=dest_tst,
       num_epochs=1,
       shuffle=False)
@@ -78,30 +89,25 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params):
   # Scores
   ev_trn = nn.evaluate(input_fn=eval_input_fn_trn)
   ev_tst = nn.evaluate(input_fn=eval_input_fn_tst)
-  log.info("Loss: {:.3f}, {:.3f}".format(ev_trn["loss"], ev_tst['loss']))
-  log.info("Root Mean Squared Error: {:.3f}, {:.3f}".format(ev_trn["rmse"], ev_tst['rmse']))
+  log.info("Loss (trn, tst): {:.3f}, {:.3f}".format(ev_trn["loss"], ev_tst['loss']))
 
-#   # Viz
-#   if not os.path.exists(VIZ_DIR):
-#     os.makedirs(VIZ_DIR)
+  # Viz
+  if viz:
+    maybe_exist(VIZ_DIR)
+    pred_tst = nn.predict(input_fn=eval_input_fn_tst)
+    pred_tst = islice(pred_tst, 10)
+    for i, pred in enumerate(pred_tst):
+      fname = '{}/{}__tst_{}.png'.format(VIZ_DIR, model_id, i)
+      visualize_predicted_destination(
+          path_tst[i], dest_tst[i], pred, fname=fname)
 
-#   pred_tst = nn.predict(input_fn=eval_input_fn_tst)
-#   import itertools
-#   pred_tst = itertools.islice(pred_tst, 10)
-#   for i, pred in enumerate(pred_tst):
-#     fname = '{}/{}__tst_{}.png'.format(VIZ_DIR, model_id, i)
-#     visualize_predicted_destination(
-#         path_tst[i], dest_tst[i], pred, fname=fname)
-
-#   del nn
-  return ev_trn['rmse'], ev_tst['rmse']
+  return ev_trn['loss'], ev_tst['loss']
 
 
 def main(_):
   # Preprocess data: convert to pkl data
   if FLAGS.preprocess:
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
+    maybe_exist(DATA_DIR)
     data_preprocessor = DataPreprocessor(RAW_DATA_FNAME)
     data_preprocessor.process_and_save(save_dir=DATA_DIR)
 
@@ -118,22 +124,24 @@ def main(_):
     #   9:  평균   평균
     #  74:  평균   평균
 
-  # PARAM GRIDS
+  # input specification
   car_id_list = [100]#[5, 9, 14, 29, 50, 72, 74, 100]
   proportion_list = [0.4]#[0.2, 0.4, 0.6, 0.8]
   short_term_dest_list = [5]#[-1, 5]
-  use_meta_path = [(True, True)]#, (True, False), (False, True)]
-
+  
+  # Used for loading data and building graph
+  use_meta_path = [(False, True)]#, (True, False), (False, True)]
   if FLAGS.model_type == 'dnn':
     k_list = [5]#, 10, 15, 20]
     bi_direction_list = [False]
   else:
     k_list = [0]
     bi_direction_list = [True, False]
-
+  
   path_embedding_dim_list = [16]
   n_hidden_layer_list = [1]
 
+  # PARAM GRIDS
   param_product = product(car_id_list, 
                           proportion_list, 
                           short_term_dest_list, 
@@ -195,9 +203,8 @@ def main(_):
                                                  path_embedding_dim, 
                                                  n_hidden_layer)
 
-    log.warning('=' * 30 + '{} / {} ({:.1f}%)'.format(i, 
-                                                      param_product_size, 
-                                                      i / param_product_size) + '=' * 30)
+    log.warning('=' * 30 + '{} / {} ({:.1f}%)'.format(
+        i + 1, param_product_size, (i + 1) / param_product_size * 100) + '=' * 30)
     log.warning('model_id: ' + model_id)
     log.warning('Using params: ' + str(model_params))
 

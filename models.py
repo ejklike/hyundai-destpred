@@ -1,6 +1,9 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
 
+from custom_loss import distance_loss
+
+
 def _variable_on_cpu(name, shape):
   initializer = tf.contrib.layers.xavier_initializer(dtype=tf.float32)
   with tf.device('/cpu:0'):
@@ -20,6 +23,7 @@ def rnn_last_output(rnn_input, n_unit=16, bi_direction=False):
 
 
 def embed_path(paths, params):
+  print('path embedded')
   if params['model_type'] == 'dnn':
     nn_inputs = tf.reshape(paths, shape=[-1, 4 * params['k']]) ###?
     return tf.layers.dense(nn_inputs, 
@@ -33,6 +37,7 @@ def embed_path(paths, params):
 
 
 def embed_meta(metas, params):
+  print('meta embedded')
   holiday, weekno, hour, weekday = tf.split(metas, metas.shape[1], axis=1)
   
   holi_W = _variable_on_cpu('holiday_table', [2, 1])
@@ -60,23 +65,23 @@ def embed_meta(metas, params):
 def model_fn(features, labels, mode, params):
   """Model function for Estimator."""
 
-  paths, metas = features['path'], features['meta']
-  paths = tf.cast(paths, dtype=tf.float32)
+  concat_target = []
 
-  # PATH embedding
-  path_embedding = embed_path(paths, params) if params['use_path'] else None
   # META embedding
-  meta_embedding = embed_meta(metas, params) if params['use_meta'] else None
+  if params['use_meta']:
+    metas = features['meta']
+    meta_embedding = embed_meta(metas, params)
+    concat_target.append(meta_embedding)
 
-  # CONCAT
-  key = ''.join(['meta' if params['use_meta'] else '',
-                 'path' if params['use_path'] else ''])
-  concat_target = dict(
-    path=[path_embedding],
-    meta=[meta_embedding],
-    metapath=[path_embedding, meta_embedding])[key]
-  x = tf.concat(concat_target, axis=1, name='embedded_input')
-  
+  # PATH embedding  
+  if params['use_path']:
+    paths = features['path']
+    paths = tf.cast(paths, dtype=tf.float32)
+    path_embedding = embed_path(paths, params)
+    concat_target.append(path_embedding)
+
+  x = tf.concat(concat_target, axis=1, name='concat_embedded_input')
+
   # FINAL dense layer
   for i_layer in range(1, params['n_hidden_layer'] + 1):
     n_hidden_node = x.get_shape().as_list()[1]
@@ -96,20 +101,23 @@ def model_fn(features, labels, mode, params):
 
   # Define loss, optimizer, and train_op
   labels = tf.cast(labels, dtype=tf.float32)
-  loss = tf.losses.mean_squared_error(labels, predictions)
+  # loss = tf.losses.mean_squared_error(labels, predictions)
+  loss = distance_loss(labels, predictions)
+  # optimizer = tf.train.GradientDescentOptimizer(
   optimizer = tf.train.AdamOptimizer(
-                                learning_rate=params["learning_rate"])
+      learning_rate=params["learning_rate"])
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
 
   # Calculate root mean squared error as additional eval metric
-  eval_metric_ops = dict(
-      rmse=tf.metrics.root_mean_squared_error(labels, predictions)
-  )
+  # eval_metric_ops = dict(
+  #     # rmse=tf.metrics.root_mean_squared_error(labels, predictions),
+  #     distance=distance_metric(labels, predictions)
+  # )
 
   # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
   return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=loss,
       train_op=train_op,
-      eval_metric_ops=eval_metric_ops)
+      eval_metric_ops=None)
