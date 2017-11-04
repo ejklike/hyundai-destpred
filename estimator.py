@@ -81,18 +81,19 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params):
   log.info("Loss: {:.3f}, {:.3f}".format(ev_trn["loss"], ev_tst['loss']))
   log.info("Root Mean Squared Error: {:.3f}, {:.3f}".format(ev_trn["rmse"], ev_tst['rmse']))
 
-  # Viz
-  if not os.path.exists(VIZ_DIR):
-    os.makedirs(VIZ_DIR)
+#   # Viz
+#   if not os.path.exists(VIZ_DIR):
+#     os.makedirs(VIZ_DIR)
 
-  pred_tst = nn.predict(input_fn=eval_input_fn_tst)
-  import itertools
-  pred_tst = itertools.islice(pred_tst, 10)
-  for i, pred in enumerate(pred_tst):
-    fname = '{}/{}__tst_{}.png'.format(VIZ_DIR, model_id, i)
-    visualize_predicted_destination(
-        path_tst[i], dest_tst[i], pred, fname=fname)
+#   pred_tst = nn.predict(input_fn=eval_input_fn_tst)
+#   import itertools
+#   pred_tst = itertools.islice(pred_tst, 10)
+#   for i, pred in enumerate(pred_tst):
+#     fname = '{}/{}__tst_{}.png'.format(VIZ_DIR, model_id, i)
+#     visualize_predicted_destination(
+#         path_tst[i], dest_tst[i], pred, fname=fname)
 
+#   del nn
   return ev_trn['rmse'], ev_tst['rmse']
 
 
@@ -118,13 +119,13 @@ def main(_):
     #  74:  평균   평균
 
   # PARAM GRIDS
-  car_id_list = [5, 9, 14, 29, 50, 72, 74, 100]
-  proportion_list = [0.2, 0.4, 0.6, 0.8]
-  short_term_dest_list = [-1, 5]
-  use_meta_path = [(True, True), (True, False), (False, True)]
+  car_id_list = [100]#[5, 9, 14, 29, 50, 72, 74, 100]
+  proportion_list = [0.4]#[0.2, 0.4, 0.6, 0.8]
+  short_term_dest_list = [5]#[-1, 5]
+  use_meta_path = [(True, True)]#, (True, False), (False, True)]
 
   if FLAGS.model_type == 'dnn':
-    k_list = [5, 10, 15, 20]
+    k_list = [5]#, 10, 15, 20]
     bi_direction_list = [False]
   else:
     k_list = [0]
@@ -141,14 +142,14 @@ def main(_):
                           bi_direction_list,
                           path_embedding_dim_list,
                           n_hidden_layer_list)
-  param_product_size = np.sum([len(car_id_list),
-                               len(proportion_list),
-                               len(short_term_dest_list),
-                               len(use_meta_path),
-                               len(k_list),
-                               len(bi_direction_list), 
-                               len(path_embedding_dim_list), 
-                               len(n_hidden_layer_list)])
+  param_product_size = np.prod([len(car_id_list),
+                                len(proportion_list),
+                                len(short_term_dest_list),
+                                len(use_meta_path),
+                                len(k_list),
+                                len(bi_direction_list), 
+                                len(path_embedding_dim_list), 
+                                len(n_hidden_layer_list)])
 
   for i, params in enumerate(param_product):
     car_id, proportion, dest_term = params[:3]
