@@ -6,7 +6,7 @@
 
 - Ubuntu 16.04
 - Python 3.6
-- Tensorflow 1.3.0
+- Tensorflow 1.4444.0
 - dependencies
   - `pip install tqdm colorlog`
 
@@ -30,7 +30,7 @@
 
 `python estimator.py dnn --preprocess --gpu_no=0 --train`
 
-Usage statement: 
+Usage statement:
 
 ```
 usage: estimator.py [-h] [--preprocess [PREPROCESS]] [--gpu_no GPU_NO]
