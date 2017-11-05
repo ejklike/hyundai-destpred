@@ -26,7 +26,7 @@ def compute_distance(labels, predictions):
 
 def compute_loss(losses, scope=None, 
                  loss_collection=ops.GraphKeys.LOSSES):
-  """Computes the weighted loss.
+  """Computes the loss.
   """
   with ops.name_scope(scope, "weighted_loss", (losses, )):
     losses = ops.convert_to_tensor(losses)
@@ -42,7 +42,7 @@ def compute_loss(losses, scope=None,
 
 def distance_loss(
     labels, predictions, scope=None,
-    loss_collection=ops.GraphKeys.LOSSES):
+    add_collection=False):
   """
   Adds a Sum-of-Squares loss to the training procedure.
   """
@@ -58,4 +58,5 @@ def distance_loss(
 
     distance_losses = compute_distance(predictions, labels)
     
-    return compute_loss(distance_losses, scope, loss_collection)
+    loss_collection = ops.GraphKeys.LOSSES if add_collection else None
+    return compute_loss(distance_losses, scope, loss_collection=loss_collection)

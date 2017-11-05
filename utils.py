@@ -10,7 +10,9 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
+
 def maybe_exist(dir):
+    """make sure the existence of given directory"""
     if not os.path.exists(dir):
         os.makedirs(dir)
 
@@ -70,12 +72,12 @@ def load_data(fname, k=0):
   return paths, metas, dests
 
 
-def record_results(fname, model_id, trn_rmse, tst_rmse):
+def record_results(fname, model_id, trn_err, val_err, tst_err):
     if not os.path.exists(fname):
         with open(fname, 'w') as fout:
             fout.write('model_id,trn_rmse,tst_rmse\n')
     with open(fname, 'a') as fout:
-        fout.write('{},{},{}\n'.format(model_id, trn_rmse, tst_rmse))
+        fout.write('{},{},{},{}\n'.format(model_id, trn_err, val_err, tst_err))
 
 
 def visualize_predicted_destination(x, y_true, y_pred, fname=None):
