@@ -52,17 +52,6 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
         self._saver = savers[0]
         return savers[0]
 
-    def _save_ckpt(self, session):
-        """Saves the latest checkpoint."""
-        log.info("Saving checkpoints for %d.", self._best_value_step)
-        
-        self._get_saver().save(session, self._save_path,
-                               global_step=self._best_value_step)
-        self._summary_writer.add_session_log(
-            SessionLog(
-                status=SessionLog.CHECKPOINT, checkpoint_path=self._save_path),
-            self._best_value_step)
-
     def begin(self):
         # You can add ops to the graph here.
         log.info('>>> Starting the session.')
@@ -99,23 +88,37 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
         valid_loss = graph.get_tensor_by_name('loss_val/Mean:0')
         return tf.train.SessionRunArgs([global_step, train_loss, valid_loss])
 
+    def _save_ckpt(self, session):
+        """Saves the latest checkpoint."""
+        log.info("...Saving checkpoints for %d.", self._best_value_step)
+        
+        self._get_saver().save(session, self._save_path,
+                               global_step=self._best_value_step)
+        self._summary_writer.add_session_log(
+            SessionLog(
+                status=SessionLog.CHECKPOINT, checkpoint_path=self._save_path),
+            self._best_value_step)
+
     def after_run(self, run_context, run_values):
         if self._step % self.log_freq == 0:
             global_step, train_loss, valid_loss = run_values.results
-            print('Global step: %d, Train_loss: %.4f, Valid_loss: %.4f'
-                  %(global_step, train_loss, valid_loss))
+            print('\rGlobal step: %d, Train_loss: %.4f, Valid_loss: %.4f'
+                  %(global_step, train_loss, valid_loss), end='\r', flush=True)
 
             current_value, current_step = valid_loss, global_step
             if self._best_value is None or (current_value < self._best_value):
+                print('')
                 self._best_value = current_value
                 self._best_value_step = current_step
                 self._save_ckpt(run_context.session)
             delta_steps = current_step - self._best_value_step
             stop_now = (delta_steps >= self.early_stopping_steps)
             if stop_now:
+                print('')
                 log.warning('Stopping. Best step: {} with {:.4f}.'
                             .format(self._best_value_step, self._best_value))
                 run_context.request_stop()
 
     def end(self, session):
+        print('')
         log.info('>>> Done with the session.')
