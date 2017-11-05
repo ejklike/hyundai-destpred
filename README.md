@@ -6,7 +6,7 @@
 
 - Ubuntu 16.04
 - Python 3.6
-- Tensorflow 1.4444.0
+- Tensorflow 1.4
 - dependencies
   - `pip install tqdm colorlog`
 
