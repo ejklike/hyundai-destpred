@@ -5,7 +5,7 @@ import os
 import pickle
 
 import numpy as np
-from sklearn.cluster import MeanShift
+from sklearn.cluster import MeanShift, estimate_bandwidth
 import tensorflow as tf
 
 from data_preprocessor import DataPreprocessor
@@ -54,7 +54,8 @@ def train_and_eval(car_id, proportion, dest_term, model_id, params, viz=False):
         input_dict_trn['path'] = path_trn
         input_dict_tst['path'] = path_tst
     if params['use_cluster']:
-        ms = MeanShift()
+        # bandwidth = estimate_bandwidth(dest_trn, quantile=0.01)
+        ms = MeanShift(bandwidth=0.05)
         ms.fit(dest_trn)
         input_dict_trn['dest_centroid'] = np.repeat(np.expand_dims(ms.cluster_centers_, axis=0), path_trn.shape[0], axis=0).astype(np.float32)
         input_dict_tst['dest_centroid'] = np.repeat(np.expand_dims(ms.cluster_centers_, axis=0), path_tst.shape[0], axis=0).astype(np.float32)
