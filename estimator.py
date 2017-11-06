@@ -1,5 +1,6 @@
 import argparse
 from itertools import islice, product
+import random
 import sys
 import os
 import pickle
@@ -80,18 +81,18 @@ def train_eval_save(car_id, proportion, dest_term,
   print(path_trn.shape, path_val.shape, path_tst.shape)
 
   # clustering destinations
-  if params['quantile'] >= 0:
-    seed = random.randrange(sys.maxsize)
-    bandwidth = estimate_bandwidth(dest_trn, quantile=params['quantile'], 
-                                   random_state=seed, n_jobs=-1)
-    cluster_centers = MeanShift(bandwidth=bandwidth).fit(dest_trn).cluster_centers_
+  if params['cluster_bw'] > 0:
+    cluster_centers = MeanShift(bandwidth=params['cluster_bw']).fit(dest_trn).cluster_centers_
     n_cluster = len(cluster_centers)
     log.info('#cluster of destination = %d', n_cluster)
-    fname = '{}/cluster/car_{}_dest_{}_qt_{}_sd_{}_cband_{:.3f}.png'.format(
-            VIZ_DIR, car_id, dest_term, params['quantile'], seed, bandwidth)
-    visualize_cluster(dest_trn, cluster_centers, fname=fname)
     params['cluster_centers'] = cluster_centers
     params['n_clusters'] = n_cluster
+  else:
+    cluster_centers = None
+
+  fname = '{}/cluster/car_{}_dest_{}_cband_{}.png'.format(
+          VIZ_DIR, car_id, dest_term, params['cluster_bw'])
+  visualize_cluster(dest_trn, dest_val, dest_tst, cluster_centers, fname=fname)
 
   # input functions for evaluation
   eval_input_fn_trn = tf.estimator.inputs.numpy_input_fn(
@@ -112,14 +113,14 @@ def train_eval_save(car_id, proportion, dest_term,
 
   # Instantiate Estimator
   model_dir = os.path.join(MODEL_DIR, model_id)
-  session_config = tf.ConfigProto()
-  session_config.gpu_options.per_process_gpu_memory_fraction = 0.47
+  sess_config = tf.ConfigProto()
+  sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_mem_frac
   config = tf.estimator.RunConfig(
       tf_random_seed=42,
       save_summary_steps=None,
       save_checkpoints_steps=None,
       save_checkpoints_secs=None,
-      session_config=session_config,
+      session_config=sess_config,
       keep_checkpoint_max=5,
       log_step_count_steps=FLAGS.log_freq)
   nn = tf.estimator.Estimator(
@@ -148,17 +149,19 @@ def train_eval_save(car_id, proportion, dest_term,
              hooks=[early_stopping_hook])
 
   # Score evaluation
-  print(nn.evaluate(input_fn=eval_input_fn_trn, name='tmp'))
-  trn_err = nn.evaluate(input_fn=eval_input_fn_trn, name='trn_eval')['loss']
-  val_err = nn.evaluate(input_fn=eval_input_fn_val, name='val_eval')['loss']
-  tst_err = nn.evaluate(input_fn=eval_input_fn_tst, name='tst_eval')['loss']
+  ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
+  global_step = nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='tmp')['global_step']
+  trn_err = nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='trn_eval')['loss']
+  val_err = nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val_eval')['loss']
+  tst_err = nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst_eval')['loss']
+  
   log.warning(model_id)
   log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
 
   if FLAGS.train:
     record_results(RECORD_FNAME, model_id, 
                    len(path_trn), len(path_val), len(path_tst),
-                   trn_err, val_err, tst_err)
+                   global_step, trn_err, val_err, tst_err)
 
   # Viz
   if save_viz:
@@ -197,13 +200,14 @@ def main(_):
     #  74:  평균   평균
 
   # input specification
-  car_id_list = [5, 9, 14, 29, 50, 72, 74, 100]
-  proportion_list = [0.2, 0.4, 0.6, 0.8]
-  short_term_dest_list = [-1, 5]
-  quantile_list = [-1, 0, 0.1, 0.3, 0.5, 0.7, 0.9, 1]
+  car_id_list = [5, 9, 14, 29, 50, 72, 74, 100] # [72, 14, 74] #[5, 9, 14, 29, 50, 72, 74, 100] # 5\
+  # car_005__prop_0.4__dest_-1__cband_0.01______path__dnn__k_5_pdim_50_dense_1/model.ckpt-3300:
+  proportion_list = [0.2]#, 0.4, 0.6, 0.8]
+  short_term_dest_list = [-1]#, 5]
+  cluster_bw_list = [0, 0.01, 0.1, 0.3]
   
   # Used for loading data and building graph
-  use_meta_path = [(True, True), (True, False), (False, True)]
+  use_meta_path = [(True, True)]#, (True, False), (False, True)]
   if FLAGS.model_type == 'dnn':
     k_list = [5]#, 10, 15, 20]
     bi_direction_list = [False]
@@ -211,14 +215,14 @@ def main(_):
     k_list = [0]
     bi_direction_list = [True, False]
   
-  path_embedding_dim_list = [10, 50, 100]
-  n_hidden_layer_list = [1, 2, 3]
+  path_embedding_dim_list = [10]#, 50, 100]
+  n_hidden_layer_list = [1]#, 2, 3]
 
   # PARAM GRIDS
   param_product = product(car_id_list, 
                           proportion_list, 
                           short_term_dest_list, 
-                          quantile_list,
+                          cluster_bw_list,
                           use_meta_path,
                           k_list,
                           bi_direction_list,
@@ -227,7 +231,7 @@ def main(_):
   param_product_size = np.prod([len(car_id_list),
                                 len(proportion_list),
                                 len(short_term_dest_list),
-                                len(quantile_list),
+                                len(cluster_bw_list),
                                 len(use_meta_path),
                                 len(k_list),
                                 len(bi_direction_list), 
@@ -235,7 +239,7 @@ def main(_):
                                 len(n_hidden_layer_list)])
 
   for i, params in enumerate(param_product):
-    car_id, proportion, dest_term, quantile = params[:4]
+    car_id, proportion, dest_term, cluster_bw = params[:4]
     use_meta, use_path = params[4]
     k, bi_direction, path_embedding_dim, n_hidden_layer = params[5:]
 
@@ -254,7 +258,7 @@ def main(_):
         # feature_set
         use_meta=use_meta,
         use_path=use_path,
-        quantile=quantile,
+        cluster_bw=cluster_bw,
         # model type
         model_type=FLAGS.model_type,
         # rnn params
@@ -268,10 +272,10 @@ def main(_):
     )
 
     # Model id
-    model_id = 'car_{:03}'.format(car_id)
+    model_id = '__tst__car_{:03}'.format(car_id)
     model_id += '__prop_{}'.format(proportion)
     model_id += '__dest_{}'.format(dest_term)
-    model_id += '__qt_{}'.format(quantile)
+    model_id += '__cband_{}'.format(cluster_bw)
     model_id += '__' + ''.join(['meta' if use_meta else '____', 
                                 'path' if use_path else '____'])
     model_id += '__' + ''.join(['b' if bi_direction else '', 
@@ -321,6 +325,11 @@ if __name__ == "__main__":
       type=str, 
       default=None,
       help='gpu device number')
+  parser.add_argument(
+      '--gpu_mem_frac', 
+      type=float, 
+      default=1,
+      help='validation size')
 
   # learning parameters and configs
   parser.add_argument(

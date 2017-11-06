@@ -72,35 +72,39 @@ def load_data(fname, k=0):
   return paths, metas, dests
 
 
-def record_results(fname, model_id, trn_size, val_size, tst_size, trn_err, val_err, tst_err):
+def record_results(fname, model_id, trn_size, val_size, tst_size, 
+                   global_step, trn_err, val_err, tst_err):
     if not os.path.exists(fname):
         with open(fname, 'w') as fout:
-            fout.write('model_id,trn_size,val_size,tst_size,trn_err,val_err,tst_err\n')
+            fout.write('model_id,trn_size,val_size,tst_size,global_step,trn_err,val_err,tst_err\n')
     with open(fname, 'a') as fout:
-        fout.write('{},{},{},{},{},{},{}\n'
-                   .format(model_id, trn_size, val_size, tst_size, trn_err, val_err, tst_err))
+        fout.write('{},{},{},{},{},{},{},{}\n'
+                   .format(model_id, trn_size, val_size, tst_size, 
+                           global_step, trn_err, val_err, tst_err))
 
 
 
-def visualize_cluster(dest, centers, fname=None):
+def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None):
     # data, label, color, marker
     # colorname from https://matplotlib.org/examples/color/named_colors.html
-
     data_list = [
-        ('destinations', dest, 'lightseagreen', 'o', 0.5),
+        ('destinations', dest_trn, 'lightseagreen', 'o', 0.5),
+        ('destinations', dest_val, 'hotpink', '.', 0.5),
+        ('destinations', dest_tst, 'crimson', '.', 0.5),
         ('cluster_centers', centers, 'orangered', '+', 1),
     ]
 
     fig, ax = plt.subplots()
     for label, path, color, marker, alpha in data_list:
-        ax.scatter(path[:, 0], path[:, 1], c=color, marker=marker, label=label, alpha=alpha, s=100)
-    ax.legend()
-    ax.grid(True)
+        if path is not None:
+            ax.scatter(path[:, 0], path[:, 1], 
+                       c=color, marker=marker, label=label, alpha=alpha, s=100)
+    ax.legend(); ax.grid(True)
 
-    plt.title(
-        fname + '\n(n_centers=%d)' % len(centers))
-    plt.savefig(fname)
-    plt.close()
+    title = ''.join([fname.split('/')[-1],
+                     ('\n(n_centers=%d)' % len(centers) if centers is not None else '')])
+    plt.title(title)
+    plt.savefig(fname); plt.close()
 
 
 def visualize_predicted_destination(x, y_true, y_pred, fname=None):

@@ -87,7 +87,7 @@ def build_graph(features, params):
     x = tf.layers.dense(x, n_hidden_node, activation=tf.nn.relu, name='dense_%d'%i_layer)
   
   # FINAL prediction
-  if params['quantile'] >= 0:
+  if params['cluster_bw'] > 0:
     c_centers = tf.constant(params['cluster_centers'], 
                             dtype=tf.float32, name='cluster_centers')
     c_probs = tf.layers.dense(x, params['n_clusters'], 

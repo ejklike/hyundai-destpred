@@ -122,3 +122,7 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
     def end(self, session):
         print('')
         log.info('>>> Done with the session.')
+
+
+def ValidHook():
+    self._global_step_tensor = training_util._get_or_create_global_step_read()
