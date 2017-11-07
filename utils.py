@@ -11,10 +11,10 @@ import numpy as np
 
 
 
-def maybe_exist(dir):
+def maybe_exist(directory):
     """make sure the existence of given directory"""
-    if not os.path.exists(dir):
-        os.makedirs(dir)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
 
 def get_pkl_file_name(car_id, proportion, dest_term, train=True):

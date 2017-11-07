@@ -132,6 +132,11 @@ def train_eval_save(car_id, proportion, dest_term,
 
   # Train Part
   if FLAGS.train:
+    
+    # Remove prev model or not
+    if FLAGS.restart and tf.gfile.Exists(model_dir):
+      tf.gfile.DeleteRecursively(model_dir)
+
     # Generate infinitely looping batch
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
         x=input_dict_trn,
@@ -174,12 +179,14 @@ def train_eval_save(car_id, proportion, dest_term,
   if n_save_viz > 0:
     maybe_exist(VIZ_DIR)
 
-    pred_input_fn_tst = tf.estimator.inputs.numpy_input_fn(
-        x=dict(meta=input_dict_tst['meta'][:n_save_viz],
-               path=input_dict_tst['path'][:n_save_viz]),
+    input_dict_pred = dict((key, array[:n_save_viz]) 
+                           for key, array in input_dict_tst.items())
+    pred_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x=input_dict_pred,
         num_epochs=1, 
         shuffle=False)
-    pred_tst = nn.predict(input_fn=pred_input_fn_tst)
+
+    pred_tst = nn.predict(input_fn=pred_input_fn)
     for i, pred in enumerate(pred_tst):
       fname = '{}/{}__{}.png'.format(VIZ_DIR, model_id, dt_tst[i])
       visualize_predicted_destination(
@@ -211,20 +218,21 @@ def main(_):
     #   9:  평균   평균
     #  74:  평균   평균
 
-
-  car_id_list = [5, 9, 14, 29, 50, 72, 74, 100] # [72, 14, 74] #[5, 9, 14, 29, 50, 72, 74, 100] # 5\
+  # training target cars
+  car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [5, 9, 14, 29, 50, 72, 74, 100]
   # input path specification
-  proportion_list = [0.2, 0.4, 0.6, 0.8]
+  proportion_list = [FLAGS.proportion] if FLAGS.proportion is not None else [0.2, 0.4, 0.6, 0.8]
   use_meta_path = [(True, True), (True, False), (False, True)]
 
   # destination specification
-  short_term_dest_list = [-1]#, 5]
-  cluster_bw_list = [0, 0.01, 0.1, 0.3]
+  short_term_dest_list = [FLAGS.dest_type] if FLAGS.dest_type is not None else [-1, 5]
+  print(FLAGS.cband)
+  cluster_bw_list = [FLAGS.cband] if FLAGS.cband is not None else [0, 0.01, 0.1, 0.3]
   
   # Used for loading data and building graph
-  k_list = [5] if FLAGS.model_type == 'dnn' else [0]#, 10, 15, 20]
-  path_embedding_dim_list = [10, 50]#, 100]
-  n_hidden_layer_list = [1, 2]#, 3]
+  k_list = [5] if FLAGS.model_type == 'dnn' else [0]          #, 10, 15, 20]
+  path_embedding_dim_list = [FLAGS.path_dim] if FLAGS.path_dim is not None else [10, 50, 100]
+  n_hidden_layer_list = [FLAGS.n_dense] if FLAGS.n_dense is not None else [1, 2, 3]
 
   # PARAM GRIDS
   param_grid_targets = [car_id_list, 
@@ -236,6 +244,7 @@ def main(_):
                         path_embedding_dim_list,
                         n_hidden_layer_list]
   param_product = product(*param_grid_targets)
+  print(param_grid_targets)
   param_product_size = np.prod([len(t) for t in param_grid_targets])
 
   for i, params in enumerate(param_product):
@@ -271,17 +280,18 @@ def main(_):
     )
 
     # Model id
-    model_id = 'car_{:03}'.format(car_id)
-    model_id += '__prop_{}'.format(proportion)
-    model_id += '__' + ''.join(['meta' if use_meta else '____', 
-                                'path' if use_path else '____'])
-    model_id += '__dest_{}'.format(dest_term)
-    model_id += '__cband_{}'.format(cluster_bw)
-    model_id += '__' + ''.join(['b' if FLAGS.bi_direction else '', 
-                                FLAGS.model_type])
-    model_id += '__k_{}_pdim_{}_dense_{}'.format(k, 
-                                                 path_embedding_dim, 
-                                                 n_hidden_layer)
+    id_components = ['car_{:03}'.format(car_id),
+                     'prop_{}'.format(proportion),
+                     ''.join(['meta' if use_meta else '____', 
+                              'path' if use_path else '____']),
+                     'dest_{}'.format(dest_term),
+                     'cband_{}'.format(cluster_bw),
+                     ''.join(['b' if FLAGS.bi_direction else '', 
+                              FLAGS.model_type]),
+                     'k_{}'.format(k),
+                     'pdim_{}_dense_{}'.format(path_embedding_dim, 
+                                               n_hidden_layer)]
+    model_id = '__'.join(id_components)
 
     log.infov('=' * 30 + '{} / {} ({:.1f}%)'.format(
         i + 1, param_product_size, (i + 1) / param_product_size * 100) + '=' * 30)
@@ -371,6 +381,13 @@ if __name__ == "__main__":
       const=True, #if the arg is given
       help='train or just eval')
   parser.add_argument(
+      '--restart', 
+      type=bool, 
+      nargs='?',
+      default=False, #default
+      const=True, #if the arg is given
+      help='delete checkpoint of prev model')
+  parser.add_argument(
       '--n_save_viz', 
       type=int, 
       default=0,
@@ -385,13 +402,30 @@ if __name__ == "__main__":
       '--proportion', 
       type=float, 
       default=None)
+
   parser.add_argument(
       '--dest_type', 
+      type=int, 
+      default=None)
+  parser.add_argument(
+      '--cband', 
+      type=float, 
+      default=None)
+
+  parser.add_argument(
+      '--path_dim', 
+      type=int, 
+      default=None)
+  parser.add_argument(
+      '--n_dense', 
       type=int, 
       default=None)
 
 
   FLAGS, unparsed = parser.parse_known_args()
+
+  print(FLAGS.proportion, FLAGS.car_id, FLAGS.dest_type, FLAGS.cband, FLAGS.path_dim, FLAGS.n_dense)
+
   
   if FLAGS.gpu_no is not None:
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_no
