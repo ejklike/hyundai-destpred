@@ -24,18 +24,24 @@
 - `estimator.py`: 메인 모듈. 미리 정해진 인자와 함께 실행
 - `models.py`: 모델 그래프를 build하는 함수를 담고 있음
 - `data_preprocessor.py`: 데이터 전처리 클래스를 담고 있음
+- `custom_loss.py`: 손실 함수 정의
+- `custom_hook.py`: early stopping & checkpoint saver hook
 - `log.py`, `utils.py`: 기타 기능 함수들 (파일이름, 출력, 시각화 등)
 
 ## API 사용예시
 
-`python estimator.py dnn --preprocess --gpu_no=0 --train`
+`python estimator.py dnn --preprocess --gpu_no=0 --batch_size=1000 --train --n_save_viz=1`
 
 Usage statement:
 
 ```
-usage: estimator.py [-h] [--preprocess [PREPROCESS]] [--gpu_no GPU_NO]
-                    [--learning_rate LEARNING_RATE] [--steps STEPS]
-                    [--log_freq LOG_FREQ] [--train [TRAIN]]
+usage: estimator.py [-h] [--preprocess [PREPROCESS]]
+                    [--validation_size VALIDATION_SIZE] [--gpu_no GPU_NO]
+                    [--gpu_mem_frac GPU_MEM_FRAC]
+                    [--learning_rate LEARNING_RATE] [--batch_size BATCH_SIZE]
+                    [--steps STEPS] [--log_freq LOG_FREQ]
+                    [--early_stopping_rounds EARLY_STOPPING_ROUNDS]
+                    [--train [TRAIN]] [--n_save_viz N_SAVE_VIZ]
                     model_type
 
 positional arguments:
@@ -45,12 +51,23 @@ optional arguments:
   -h, --help            show this help message and exit
   --preprocess [PREPROCESS]
                         Preprocess data or not
-  --gpu_no GPU_NO       gpu device number
+  --validation_size VALIDATION_SIZE
+                        validation size (default=0.2)
+  --gpu_no GPU_NO       gpu device number (must specify to use GPU!)
+  --gpu_mem_frac GPU_MEM_FRAC
+                        use only some portion of the GPU.
   --learning_rate LEARNING_RATE
                         initial learning rate
+  --batch_size BATCH_SIZE
+                        batch size
   --steps STEPS         step size
   --log_freq LOG_FREQ   log frequency
+  --early_stopping_rounds EARLY_STOPPING_ROUNDS
+                        early_stopping_steps = (early_stopping_rounds) * (log
+                        frequency)
   --train [TRAIN]       train or just eval
+  --n_save_viz N_SAVE_VIZ
+                        save "n" viz pngs for the test results
 ```
 
 ## 진행 계획
@@ -65,8 +82,11 @@ optional arguments:
 - 10월
   - [x] applying dataset api and estimator class
   - [ ] data augmentation
-  - [ ] destination inference: one-shot prediction or averaging cluster centroids
+  - [x] loss function
+  - [x] destination inference: one-shot prediction or averaging cluster centroids
+  - [x] visualization function
+
+- 11월
+  - [x] early stopping and checkpoint saver
   - [ ] structure engineering
   - [ ] hyperparameter tuning
-
-- ...TBD
