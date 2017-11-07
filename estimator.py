@@ -52,8 +52,8 @@ def train_eval_save(car_id, proportion, dest_term,
       DATA_DIR,
       get_pkl_file_name(car_id, proportion, dest_term, train=False))
 
-  path_trn, meta_trn, dest_trn = load_data(fname_trn, k=params['k'])
-  path_tst, meta_tst, dest_tst = load_data(fname_tst, k=params['k'])
+  path_trn, meta_trn, dest_trn, _ = load_data(fname_trn, k=params['k'])
+  path_tst, meta_tst, dest_tst, dt_tst = load_data(fname_tst, k=params['k'])
 
   # split train set into train/validation sets
   num_trn = int(len(path_trn) * (1 - FLAGS.validation_size))
@@ -114,7 +114,8 @@ def train_eval_save(car_id, proportion, dest_term,
   # Instantiate Estimator
   model_dir = os.path.join(MODEL_DIR, model_id)
   sess_config = tf.ConfigProto()
-  sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_mem_frac
+  if FLAGS.gpu_mem_frac < 1:
+    sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_mem_frac
   config = tf.estimator.RunConfig(
       tf_random_seed=42,
       save_summary_steps=None,
@@ -163,13 +164,17 @@ def train_eval_save(car_id, proportion, dest_term,
                    len(path_trn), len(path_val), len(path_tst),
                    global_step, trn_err, val_err, tst_err)
 
-  # Viz
-  if save_viz:
+  # Viz Preds
+  if FLAGS.n_save_viz > 0:
     maybe_exist(VIZ_DIR)
-    pred_tst = nn.predict(input_fn=eval_input_fn_tst)
-    pred_tst = islice(pred_tst, 10)
+    pred_input_fn_tst = tf.estimator.inputs.numpy_input_fn(
+        x=input_dict_tst[:FLAGS.n_save_viz],
+        num_epochs=1,
+        shuffle=False)
+
+    pred_tst = nn.predict(input_fn=pred_input_fn_tst)
     for i, pred in enumerate(pred_tst):
-      fname = '{}/{}__tst_{}.png'.format(VIZ_DIR, model_id, i)
+      fname = '{}/{}__{}.png'.format(VIZ_DIR, model_id, dt_tst[i])
       visualize_predicted_destination(
           path_tst[i], dest_tst[i], pred, fname=fname)
 
@@ -317,19 +322,19 @@ if __name__ == "__main__":
       '--validation_size', 
       type=float, 
       default=0.2,
-      help='validation size')
+      help='validation size (default=0.2)')
 
   # gpu allocation
   parser.add_argument(
       '--gpu_no', 
       type=str, 
       default=None,
-      help='gpu device number')
+      help='gpu device number (must specify to use GPU!)')
   parser.add_argument(
       '--gpu_mem_frac', 
       type=float, 
       default=1,
-      help='validation size')
+      help='use only some portion of the GPU.')
 
   # learning parameters and configs
   parser.add_argument(
@@ -365,12 +370,10 @@ if __name__ == "__main__":
       const=True, #if the arg is given
       help='train or just eval')
   parser.add_argument(
-      '--save_viz', 
-      type=bool, 
-      nargs='?',
-      default=False, #default
-      const=True, #if the arg is given
-      help='train or just eval')
+      '--n_save_viz', 
+      type=int, 
+      default=0,
+      help='save "n" viz pngs for the test results')
 
   FLAGS, unparsed = parser.parse_known_args()
   

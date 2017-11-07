@@ -39,7 +39,7 @@ def load_data(fname, k=0):
       dests: nparray of shape [data_size, 2]
   """
   data = pickle.load(open(fname, 'rb'))
-  paths, metas, dests = data['path'], data['meta'], data['dest']
+  paths, metas, dests, dts = data['path'], data['meta'], data['dest'], data['dt']
 
   if k == 0: # RNN
     def resize_by_padding(path, target_length):
@@ -69,7 +69,7 @@ def load_data(fname, k=0):
   
   metas, dests = np.array(metas), np.array(dests)
 
-  return paths, metas, dests
+  return paths, metas, dests, dts
 
 
 def record_results(fname, model_id, trn_size, val_size, tst_size, 
@@ -88,9 +88,9 @@ def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None):
     # data, label, color, marker
     # colorname from https://matplotlib.org/examples/color/named_colors.html
     data_list = [
-        ('destinations', dest_trn, 'lightseagreen', 'o', 0.5),
-        ('destinations', dest_val, 'hotpink', '.', 0.5),
-        ('destinations', dest_tst, 'crimson', '.', 0.5),
+        ('destinations (trn)', dest_trn, 'lightseagreen', 'o', 0.5),
+        ('destinations (val)', dest_val, 'hotpink', '.', 0.5),
+        ('destinations (tst)', dest_tst, 'crimson', '.', 0.5),
         ('cluster_centers', centers, 'orangered', '+', 1),
     ]
 
