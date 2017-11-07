@@ -68,13 +68,13 @@ def build_graph(features, params):
 
   # META embedding
   if params['use_meta']:
-    metas = features['meta'] ###
+    metas = features['meta']
     meta_embedding = embed_meta(metas, params)
     concat_target.append(meta_embedding)
 
   # PATH embedding  
   if params['use_path']:
-    paths = features['path'] ###
+    paths = features['path']
     paths = tf.cast(paths, dtype=tf.float32)
     path_embedding = embed_path(paths, params)
     concat_target.append(path_embedding)

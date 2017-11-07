@@ -40,7 +40,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def train_eval_save(car_id, proportion, dest_term, 
-                   model_id, params, save_viz=False):
+                    model_id, params, n_save_viz=0):
   """
   TRAIN and EVAL for given car and experimental settings
   """
@@ -76,9 +76,9 @@ def train_eval_save(car_id, proportion, dest_term,
     input_dict_tst['path'] = path_tst
   params['features_val'] = features_val
   params['labels_val'] = dest_val
-  log.infov('data_size: (trn, val, tst) = ({}, {}, {})'
-            .format(len(path_trn), len(path_val), len(path_tst)))
-  print(path_trn.shape, path_val.shape, path_tst.shape)
+  # log.infov('data_size:  = ({}, {}, {})'
+  #           .format(len(path_trn), len(path_val), len(path_tst)))
+  print('data shape of (trn, val, tst): ', path_trn.shape, path_val.shape, path_tst.shape)
 
   # clustering destinations
   if params['cluster_bw'] > 0:
@@ -151,10 +151,16 @@ def train_eval_save(car_id, proportion, dest_term,
 
   # Score evaluation
   ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
-  global_step = nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='tmp')['global_step']
-  trn_err = nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='trn_eval')['loss']
-  val_err = nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val_eval')['loss']
-  tst_err = nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst_eval')['loss']
+  global_step = nn.evaluate(input_fn=eval_input_fn_trn, 
+                            checkpoint_path=ckpt_path, name='tmp')['global_step']
+  print('evaluating@{}, restoring from {}'.format(global_step, ckpt_path))
+
+  trn_err = nn.evaluate(input_fn=eval_input_fn_trn, 
+                        checkpoint_path=ckpt_path, name='trn_eval')['loss']
+  val_err = nn.evaluate(input_fn=eval_input_fn_val, 
+                        checkpoint_path=ckpt_path, name='val_eval')['loss']
+  tst_err = nn.evaluate(input_fn=eval_input_fn_tst, 
+                        checkpoint_path=ckpt_path, name='tst_eval')['loss']
   
   log.warning(model_id)
   log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
@@ -165,13 +171,14 @@ def train_eval_save(car_id, proportion, dest_term,
                    global_step, trn_err, val_err, tst_err)
 
   # Viz Preds
-  if FLAGS.n_save_viz > 0:
+  if n_save_viz > 0:
     maybe_exist(VIZ_DIR)
-    pred_input_fn_tst = tf.estimator.inputs.numpy_input_fn(
-        x=input_dict_tst[:FLAGS.n_save_viz],
-        num_epochs=1,
-        shuffle=False)
 
+    pred_input_fn_tst = tf.estimator.inputs.numpy_input_fn(
+        x=dict(meta=input_dict_tst['meta'][:n_save_viz],
+               path=input_dict_tst['path'][:n_save_viz]),
+        num_epochs=1, 
+        shuffle=False)
     pred_tst = nn.predict(input_fn=pred_input_fn_tst)
     for i, pred in enumerate(pred_tst):
       fname = '{}/{}__{}.png'.format(VIZ_DIR, model_id, dt_tst[i])
@@ -204,49 +211,36 @@ def main(_):
     #   9:  평균   평균
     #  74:  평균   평균
 
-  # input specification
+
   car_id_list = [5, 9, 14, 29, 50, 72, 74, 100] # [72, 14, 74] #[5, 9, 14, 29, 50, 72, 74, 100] # 5\
-  # car_005__prop_0.4__dest_-1__cband_0.01______path__dnn__k_5_pdim_50_dense_1/model.ckpt-3300:
-  proportion_list = [0.2]#, 0.4, 0.6, 0.8]
+  # input path specification
+  proportion_list = [0.2, 0.4, 0.6, 0.8]
+  use_meta_path = [(True, True), (True, False), (False, True)]
+
+  # destination specification
   short_term_dest_list = [-1]#, 5]
   cluster_bw_list = [0, 0.01, 0.1, 0.3]
   
   # Used for loading data and building graph
-  use_meta_path = [(True, True)]#, (True, False), (False, True)]
-  if FLAGS.model_type == 'dnn':
-    k_list = [5]#, 10, 15, 20]
-    bi_direction_list = [False]
-  else:
-    k_list = [0]
-    bi_direction_list = [True, False]
-  
-  path_embedding_dim_list = [10]#, 50, 100]
-  n_hidden_layer_list = [1]#, 2, 3]
+  k_list = [5] if FLAGS.model_type == 'dnn' else [0]#, 10, 15, 20]
+  path_embedding_dim_list = [10, 50]#, 100]
+  n_hidden_layer_list = [1, 2]#, 3]
 
   # PARAM GRIDS
-  param_product = product(car_id_list, 
-                          proportion_list, 
-                          short_term_dest_list, 
-                          cluster_bw_list,
-                          use_meta_path,
-                          k_list,
-                          bi_direction_list,
-                          path_embedding_dim_list,
-                          n_hidden_layer_list)
-  param_product_size = np.prod([len(car_id_list),
-                                len(proportion_list),
-                                len(short_term_dest_list),
-                                len(cluster_bw_list),
-                                len(use_meta_path),
-                                len(k_list),
-                                len(bi_direction_list), 
-                                len(path_embedding_dim_list), 
-                                len(n_hidden_layer_list)])
+  param_grid_targets = [car_id_list, 
+                        proportion_list, 
+                        use_meta_path,
+                        short_term_dest_list, 
+                        cluster_bw_list,
+                        k_list,
+                        path_embedding_dim_list,
+                        n_hidden_layer_list]
+  param_product = product(*param_grid_targets)
+  param_product_size = np.prod([len(t) for t in param_grid_targets])
 
   for i, params in enumerate(param_product):
-    car_id, proportion, dest_term, cluster_bw = params[:4]
-    use_meta, use_path = params[4]
-    k, bi_direction, path_embedding_dim, n_hidden_layer = params[5:]
+    car_id, proportion, (use_meta, use_path), dest_term, cluster_bw = params[:5]
+    k, path_embedding_dim, n_hidden_layer = params[5:]
 
     # If we do not use path input,
     # some param grids are not needed.
@@ -263,11 +257,11 @@ def main(_):
         # feature_set
         use_meta=use_meta,
         use_path=use_path,
-        cluster_bw=cluster_bw,
         # model type
         model_type=FLAGS.model_type,
+        cluster_bw=cluster_bw,
         # rnn params
-        bi_direction=bi_direction,
+        bi_direction=FLAGS.bi_direction,
         # dnn params
         k=k,
         # path embedding dim (rnn: n_unit / dnn: out_dim)
@@ -277,13 +271,13 @@ def main(_):
     )
 
     # Model id
-    model_id = '__tst__car_{:03}'.format(car_id)
+    model_id = 'car_{:03}'.format(car_id)
     model_id += '__prop_{}'.format(proportion)
-    model_id += '__dest_{}'.format(dest_term)
-    model_id += '__cband_{}'.format(cluster_bw)
     model_id += '__' + ''.join(['meta' if use_meta else '____', 
                                 'path' if use_path else '____'])
-    model_id += '__' + ''.join(['b' if bi_direction else '', 
+    model_id += '__dest_{}'.format(dest_term)
+    model_id += '__cband_{}'.format(cluster_bw)
+    model_id += '__' + ''.join(['b' if FLAGS.bi_direction else '', 
                                 FLAGS.model_type])
     model_id += '__k_{}_pdim_{}_dense_{}'.format(k, 
                                                  path_embedding_dim, 
@@ -295,7 +289,7 @@ def main(_):
     log.infov('Using params: ' + str(model_params))
 
     train_eval_save(car_id, proportion, dest_term, 
-                    model_id, model_params, save_viz=FLAGS.save_viz)
+                    model_id, model_params, n_save_viz=FLAGS.n_save_viz)
 
 
 
@@ -308,6 +302,13 @@ if __name__ == "__main__":
       type=str, 
       default='dnn',
       help='dnn/rnn')
+  parser.add_argument(
+      '--bi_direction', 
+      type=bool, 
+      nargs='?',
+      default=False, #default
+      const=True, #if the arg is given
+      help='RNN only, bidirection or not')
 
   # Data preprocess
   parser.add_argument(
@@ -345,7 +346,7 @@ if __name__ == "__main__":
   parser.add_argument(
       '--batch_size', 
       type=int, 
-      default=200,
+      default=500,
       help='batch size')
   parser.add_argument(
       '--steps', 
@@ -374,6 +375,21 @@ if __name__ == "__main__":
       type=int, 
       default=0,
       help='save "n" viz pngs for the test results')
+
+  # PARAM GRID args
+  parser.add_argument(
+      '--car_id', 
+      type=int, 
+      default=None)
+  parser.add_argument(
+      '--proportion', 
+      type=float, 
+      default=None)
+  parser.add_argument(
+      '--dest_type', 
+      type=int, 
+      default=None)
+
 
   FLAGS, unparsed = parser.parse_known_args()
   
