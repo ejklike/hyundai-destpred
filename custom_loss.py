@@ -5,7 +5,7 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import weights_broadcast_ops
 from tensorflow.python.ops.losses import util
 
-def compute_distance(labels, predictions):
+def compute_distance_by_instance(labels, predictions):
   """compute distance
   input: labels, predictions
   return: a tensor of size (batch_size, )
@@ -13,7 +13,8 @@ def compute_distance(labels, predictions):
   # 경도 (y): 1도= 88.8km, 1분=1.48km, 1초≒25.0m (위도 37도 기준)
   # 위도 (x): 1도=111.0Km, 1분=1.85Km, 1초=30.8m
   # http://lovestudycom.tistory.com/entry/위도-경도-계산법
-  km_per_latitude, km_per_longitude = 111.0, 88.8
+  unit = 100 # to prevent NanLossDuringTrainingError
+  km_per_latitude, km_per_longitude = 111.0/unit, 88.8/unit
   squared_delta = math_ops.squared_difference(predictions, labels)
   weights = ops.convert_to_tensor([[km_per_latitude**2, km_per_longitude**2], ], 
                                   dtype=squared_delta.dtype)
@@ -21,7 +22,7 @@ def compute_distance(labels, predictions):
       math_ops.to_float(weights), squared_delta)
   squared_rescaled = math_ops.multiply(squared_delta, weights)
   sum_of_squared_rescaled = math_ops.reduce_sum(squared_rescaled, 1)
-  return math_ops.sqrt(sum_of_squared_rescaled)
+  return math_ops.sqrt(sum_of_squared_rescaled) * unit
 
 
 def compute_loss(losses, scope=None, 
@@ -56,7 +57,7 @@ def distance_loss(
     labels = math_ops.to_float(labels)
     predictions.get_shape().assert_is_compatible_with(labels.get_shape())
 
-    distance_losses = compute_distance(predictions, labels)
-    
+    distance_losses = compute_distance_by_instance(predictions, labels)
+
     loss_collection = ops.GraphKeys.LOSSES if add_collection else None
     return compute_loss(distance_losses, scope, loss_collection=loss_collection)
