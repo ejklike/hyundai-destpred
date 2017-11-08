@@ -86,8 +86,8 @@ class Path(object):
         path_length = len(self.xy_list)
         partial_path_length = int(path_length * proportion_of_path)
 
-        # "-1" stands for the final destination
-        if short_term_pred_min == -1:
+        # "0" stands for the final destination
+        if short_term_pred_min == 0:
             short_term_dest_idx = -1
             is_valid_dest = True
         else:
@@ -174,7 +174,7 @@ class DataPreprocessor(object):
             
 
         proportion_of_path_list = [0.2, 0.4, 0.6, 0.8]
-        short_term_pred_min_list = [-1, 5] # -1 for final destination
+        short_term_pred_min_list = [0, 5] # 0 for final destination
         train_ratio = 0.8
 
         # preprocess and save
