@@ -10,11 +10,27 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
-
 def maybe_exist(directory):
     """make sure the existence of given directory"""
     if not os.path.exists(directory):
         os.makedirs(directory)
+
+
+def convert_time_for_fname(date_time):
+    if isinstance(date_time, str):
+        date_time = datetime.strptime(date_time, '%Y-%m-%d %H:%M:%S')
+    return date_time.strftime('%Y%m%d_%H%M%S')
+
+
+def dist(x, y, to_km=False):
+    rad_to_km = np.array([111.0, 88.8])
+    
+    x, y = x.reshape(-1, 2), y.reshape(-1, 2)
+    delta_square = (x - y)**2
+    if to_km is True:
+        delta_square *= rad_to_km**2
+    distances = np.sqrt(np.sum(delta_square, axis=1))
+    return np.sum(distances)
 
 
 def get_pkl_file_name(car_id, proportion, dest_term, train=True):
@@ -23,7 +39,7 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
         train='train' if train else 'test',
         car_id = 'VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
         proportion=int(proportion*100),
-        dest_type='F' if dest_term == -1 else dest_term)
+        dest_type=dest_term)
     return file_name
 
 
@@ -85,6 +101,9 @@ def record_results(fname, model_id, trn_size, val_size, tst_size,
 
 
 def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None):
+    if fname is None:
+        raise ValueError('You must enter the fname!')
+
     # data, label, color, marker
     # colorname from https://matplotlib.org/examples/color/named_colors.html
     data_list = [
@@ -101,13 +120,28 @@ def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None):
                        c=color, marker=marker, label=label, alpha=alpha, s=100)
     ax.legend(); ax.grid(True)
 
-    title = ''.join([fname.split('/')[-1],
-                     ('\n(n_centers=%d)' % len(centers) if centers is not None else '')])
+    fname_without_extension = fname[:-4]
+    *save_dir, fname_without_dir = fname_without_extension.split('/')
+    maybe_exist('/'.join(save_dir))
+    car, dest, cband = fname_without_dir.split('__')
+    title = '{car}, {dest}{setting}'.format(
+        car=car.upper(),
+        dest='FINAL DEST' if dest[-1] == '0' else 'DEST AFTER {} MIN.'.format(dest[-1]),
+        setting='' if centers is None else '\n(cband=%d, n_centers=%d)'%(cband, len(centers)))
+    title += '\n(diag_rad={range_rad:.3f}, diag_km={range_km:.2f}, trn only)'.format(
+        range_rad=dist(np.max(dest_trn, axis=0), np.min(dest_trn, axis=0), to_km=False),
+        range_km=dist(np.max(dest_trn, axis=0), np.min(dest_trn, axis=0), to_km=True))
+
     plt.title(title)
+    plt.xlabel('longitude (translated)')
+    plt.ylabel('latitude (translated)')
     plt.savefig(fname); plt.close()
 
 
 def visualize_predicted_destination(x, y_true, y_pred, fname=None):
+    if fname is None:
+        raise ValueError('You must enter the fname!')
+
     if len(x.shape) == 1:
         path = x.reshape(-1, 2) # from 1d to 2d data
     else:
@@ -133,12 +167,22 @@ def visualize_predicted_destination(x, y_true, y_pred, fname=None):
     ax.legend()
     ax.grid(True)
 
-    if fname is None:
-        fname = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    dist_rad = np.sqrt(np.sum((y_true - y_pred)**2))
-    dist_km = np.sqrt(np.sum((y_true - y_pred)**2 * [111.0**2, 88.8**2]))
-    plt.title(
-        fname + '\n(dist_rad={:.3f}, dist_km={:.2f})'.format(dist_rad, dist_km))
+    # SET TITLE and SAVE
+    fname_without_extension = fname[:-4]
+    *save_dir, fname_without_dir = fname_without_extension.split('/')
+    car, dest, *exp_setting, start_dt = fname_without_dir.split('__')
+    title = '{car}, {start_dt}, {dest}\nSETTING: {setting}'.format(
+        car=car.upper(),
+        start_dt=start_dt,
+        dest='FINAL DEST' if dest[-1] == '0' else 'AFTER {} MIN.'.format(dest[-1]),
+        setting='__'.join(exp_setting))
+    title += '\n(dist_rad={dist_rad:.3f}, dist_km={dist_km:.2f})'.format(
+        dist_rad=dist(y_true, y_pred, to_km=False),
+        dist_km=dist(y_true, y_pred, to_km=True))
+    ax_title = ax.set_title(title)
+    # fig.tight_layout()
+    fig.subplots_adjust(top=0.8)
+    plt.xlabel('longitude (translated)')
+    plt.ylabel('latitude (translated)')
     plt.savefig(fname)
     plt.close()
