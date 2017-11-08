@@ -12,6 +12,10 @@ def _variable_on_cpu(name, shape):
 
 
 def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
+  """
+  input: [batch_size, time_size, 2]
+  output: [batch_size, n_unit] if bi_direction is False else [batch_size, n_unit * 2]
+  """
   rnn_cell = rnn.BasicLSTMCell(n_unit)
   if bi_direction:
       outputs, _, = tf.nn.bidirectional_dynamic_rnn(
@@ -26,7 +30,8 @@ def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
 def embed_path(paths, params):
   # print('path embedded')
   if params['model_type'] == 'dnn':
-    nn_inputs = tf.reshape(paths, shape=[-1, 4 * params['k']]) ###?
+    nn_inputs = tf.reshape(paths, # first and last k points for both x and y
+                           shape=[-1, 4 * params['k']])
     return tf.layers.dense(nn_inputs, 
                            params['path_embedding_dim'], 
                            activation=tf.nn.relu, name='embed_path')
