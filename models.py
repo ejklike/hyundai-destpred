@@ -16,7 +16,7 @@ def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
   if bi_direction:
       outputs, _, = tf.nn.bidirectional_dynamic_rnn(
           rnn_cell, rnn_cell, rnn_input, dtype=tf.float32, scope=scope)
-      outputs = tf.concat(outputs, axis=1)
+      outputs = tf.concat(outputs, axis=2)
   else:
       outputs, _ = tf.nn.dynamic_rnn(
           rnn_cell, rnn_input, dtype=tf.float32, scope=scope)
