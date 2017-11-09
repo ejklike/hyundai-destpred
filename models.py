@@ -88,7 +88,8 @@ def build_graph(features, params):
 
   # before FINAL dense layer
   for i_layer in range(1, params['n_hidden_layer'] + 1):
-    n_hidden_node = x.get_shape().as_list()[1]
+    # n_hidden_node = x.get_shape().as_list()[1]
+    n_hidden_node = params['path_embedding_dim']
     x = tf.layers.dense(x, n_hidden_node, activation=tf.nn.relu, name='dense_%d'%i_layer)
   
   # FINAL prediction
