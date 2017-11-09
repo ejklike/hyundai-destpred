@@ -13,11 +13,17 @@ from utils import get_pkl_file_name
 
 
 def global_latitude_convertor(x):
-    return (x + 600) / (-19)
+    if abs(x) > 500:
+        return (x + 600) / (-19)
+    else:
+        return x - 36
 
 
 def global_longitude_convertor(y):
-    return (y - 660) / (5)
+    if abs(y) > 500:
+        return (y - 660) / (5)
+    else:
+        return y - 128
 
 
 class MetaHandler(object):
@@ -111,6 +117,7 @@ class DataPreprocessor(object):
 
     def __init__(self, data_fname):
         self.data_dir = './data'
+        self.pkl_fname = data_fname.replace('.csv', '.p')
         self.data_path = os.path.join(self.data_dir, data_fname)
         self._meta_handler = MetaHandler('kor_event_days.json')
 
@@ -161,7 +168,7 @@ class DataPreprocessor(object):
         print('Starting data preprocessing.')
 
         # load data parsing results
-        tmp_pkl_file = os.path.join(save_dir, 'tmp.p')
+        tmp_pkl_file = os.path.join(save_dir, self.pkl_fname)
         print('Check the existence of {} ...'.format(tmp_pkl_file))
         if not os.path.exists(tmp_pkl_file):
             print('Reading and parsing raw data ...')
