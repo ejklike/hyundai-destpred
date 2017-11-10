@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 
 import tensorflow as tf
@@ -56,6 +57,7 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
         # You can add ops to the graph here.
         log.info('>>> Starting the session.')
         self._step = -1
+        self._start_time = datetime.now()
         self._summary_writer = SummaryWriterCache.get(self._checkpoint_dir)
         self._global_step_tensor = training_util._get_or_create_global_step_read()
         if self._global_step_tensor is None:
@@ -102,8 +104,10 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
     def after_run(self, run_context, run_values):
         if self._step % self.log_freq == 0:
             global_step, train_loss, valid_loss = run_values.results
-            print('\rGlobal step: %d, Train_loss: %.4f, Valid_loss: %.4f'
-                  %(global_step, train_loss, valid_loss), end='\r', flush=True)
+            elapsed_time_min = (datetime.now() - self._start_time).total_seconds()
+            print('\rGlobal step: %d, Train_loss: %.4f, Valid_loss: %.4f (%d sec for %d steps)'
+                  %(global_step, train_loss, valid_loss, elapsed_time_min, self.log_freq), 
+                  end='\r', flush=True)
 
             current_value, current_step = valid_loss, global_step
             if self._best_value is None or (current_value < self._best_value):
@@ -118,6 +122,7 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
                 log.warning('Stopping. Best step: {} with {:.4f}.'
                             .format(self._best_value_step, self._best_value))
                 run_context.request_stop()
+            self._start_time = datetime.now()
 
     def end(self, session):
         print('')
