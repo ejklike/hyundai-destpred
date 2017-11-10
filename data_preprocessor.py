@@ -1,5 +1,5 @@
 import codecs
-from datetime import datetime, date
+from datetime import date
 from itertools import product
 import json
 import os
@@ -9,8 +9,12 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from utils import get_pkl_file_name
+from utils import get_pkl_file_name, convert_str_to_time
 
+DATA_DIR = './data'
+HOLIDAY_JSON_FNAME = 'kor_event_days.json'
+INPUT_DATA_EXT = '.csv'
+OUTPUT_DATA_EXT = '.p'
 
 def global_latitude_convertor(x):
     if abs(x) > 500:
@@ -29,29 +33,22 @@ def global_longitude_convertor(y):
 class MetaHandler(object):
 
     def __init__(self, event_data_fname):
-        self.holiday_set = self._load_holiday_set(event_data_fname)
+        self.holiday_date_set = self._load_holiday_set(event_data_fname)
         
     def _load_holiday_set(self, fname):
-        if fname == '-':
-            fp = codecs.getreader('utf-8')(sys.stdin)
-        else:
-            fp = codecs.open(fname, 'rb', encoding='utf-8')
-        lines = fp.read()
-        fp.close()
-
-        jdata = json.loads(lines)
+        with codecs.open(fname, 'rb', encoding='utf-8') as fp:
+            lines = fp.read()
+        event_days = json.loads(lines)['results']
         
-        holiday_set = set()
-        for days in jdata['results']:
-            holiday_type = days['type']
-            # h: 법정공휴일, i: 대체 공휴일
-            if (holiday_type == 'h') or (holiday_type == 'i'):
-                year, month, day = int(days['year']), int(days['month']), int(days['day'])
-                holiday_set.add(date(year, month, day))
-        return holiday_set
+        def _date_from_day_dict(day_dict):
+            year, month, day = int(day_dict['year']), int(day_dict['month']), int(day_dict['day'])
+            return date(year, month, day)
+
+        return set( # h: 법정공휴일, i: 대체 공휴일
+            _date_from_day_dict(day) for day in event_days if day['type'] in ['h', 'i'])
 
     def _event_chk(self, start_dt):
-        return int(start_dt.date() in self.holiday_set)
+        return int(start_dt.date() in self.holiday_date_set)
 
     def _hour_chk(self, start_dt):
         return start_dt.hour
@@ -68,7 +65,8 @@ class MetaHandler(object):
         input: start_dt ; 2006-01-10 13:56:16
         output: meta data list [공휴일, 요일, 시간대, 주차]
         """
-        start_dt = datetime.strptime(start_dt, '%Y-%m-%d %H:%M:%S')
+        start_dt = convert_str_to_time(start_dt)
+        print(start_dt)
         
         return [self._event_chk(start_dt), self._week_num_chk(start_dt),
                 self._hour_chk(start_dt), self._week_chk(start_dt)]
@@ -115,15 +113,14 @@ class Path(object):
 
 class DataPreprocessor(object):
 
-    def __init__(self, data_fname):
-        self.data_dir = './data'
-        self.pkl_fname = data_fname.replace('.csv', '.p')
-        self.data_path = os.path.join(self.data_dir, data_fname)
-        self._meta_handler = MetaHandler('kor_event_days.json')
+    def __init__(self, to_dir):
+        self.from_dir = DATA_DIR
+        self.to_dir = to_dir
+        self._meta_handler = MetaHandler(HOLIDAY_JSON_FNAME)
+        print(self._meta_handler.holiday_date_set)
 
 
     def _load_and_parse_data(self):
-            
         header = ['car_id', 'start_dt', 'seq_id', 'x', 'y', 'link_id']
         df = pd.read_csv(self.data_path, header=None,
                            delimiter=',', names=header, low_memory=False, 
@@ -163,12 +160,14 @@ class DataPreprocessor(object):
         return paths_by_car
 
 
-    def process_and_save(self, save_dir):
+    def process_and_save(self, data_fname):
 
         print('Starting data preprocessing.')
+        self.from_path = os.path.join(self.from_dir, data_fname)
+        self.pkl_fname = data_fname.replace(INPUT_DATA_EXT, OUTPUT_DATA_EXT)
 
         # load data parsing results
-        tmp_pkl_file = os.path.join(save_dir, self.pkl_fname)
+        tmp_pkl_file = os.path.join(self.to_dir, self.pkl_fname)
         print('Check the existence of {} ...'.format(tmp_pkl_file))
         if not os.path.exists(tmp_pkl_file):
             print('Reading and parsing raw data ...')
@@ -197,7 +196,7 @@ class DataPreprocessor(object):
             for proportion, dest_term in product(proportion_of_path_list, 
                                                  short_term_pred_min_list):
                 # data to save
-                path_list, meta_list, dest_list, dt_list = [], [], [], []
+                full_path_list, path_list, meta_list, dest_list, dt_list = [], [], [], [], []
 
                 for path in paths:
                     result = path.get_partial_path_and_short_term_dest(
@@ -207,6 +206,7 @@ class DataPreprocessor(object):
                         partial_path, short_term_dest = result
                         meta_feature = path.get_meta_feature(self._meta_handler)
 
+                        full_path_list.append(np.array(path.xy_list))
                         path_list.append(partial_path)
                         meta_list.append(meta_feature)
                         dest_list.append(short_term_dest)
@@ -219,12 +219,14 @@ class DataPreprocessor(object):
                 train_size = int(train_ratio * data_size)
 
                 trn_data = dict(
+                    full_path=full_path_list[:train_size],
                     path=path_list[:train_size],
                     meta=meta_list[:train_size],
                     dest=dest_list[:train_size],
                     dt=dt_list[:train_size],
                 )
                 tst_data = dict(
+                    full_path=full_path_list[train_size:],
                     path=path_list[train_size:],
                     meta=meta_list[train_size:],
                     dest=dest_list[train_size:],
@@ -233,6 +235,6 @@ class DataPreprocessor(object):
                 
                 # save the results
                 trn_fname = get_pkl_file_name(car_id, proportion, dest_term, train=True)
-                pickle.dump(trn_data, open(os.path.join(save_dir, trn_fname), 'wb'))
                 tst_fname = get_pkl_file_name(car_id, proportion, dest_term, train=False)
-                pickle.dump(tst_data, open(os.path.join(save_dir, tst_fname), 'wb'))
+                pickle.dump(trn_data, open(os.path.join(self.to_dir, trn_fname), 'wb'))
+                pickle.dump(tst_data, open(os.path.join(self.to_dir, tst_fname), 'wb'))
