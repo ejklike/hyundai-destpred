@@ -153,16 +153,25 @@ def train_eval_save(car_id, proportion, dest_term,
         nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val'),
         nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst')
     ]
-    global_step = eval_results[0]['global_step']
+    global_step = eval_results[0]['global_step'] - 1
     trn_err, val_err, tst_err = [result['mean_distance'] for result in eval_results]
+    trn_std, val_std, tst_std = [result['std_distance'] for result in eval_results]
+    print([result['std_distance'] for result in eval_results])
+    print([result['min_distance'] for result in eval_results])
+    print([result['max_distance'] for result in eval_results])
 
     log.warning(model_id)
     log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
 
     if FLAGS.train:
       record_results(RECORD_FNAME, model_id, 
-                     len(path_trn), len(path_val), len(path_tst),
-                     global_step, trn_err, val_err, tst_err)
+                     data_size=[len(path_trn), len(path_val), len(path_tst)],
+                     global_step=global_step, 
+                     mean_dist=[result['mean_distance'] for result in eval_results],
+                     std_dist=[result['std_distance'] for result in eval_results],
+                     min_dist=[result['min_distance'] for result in eval_results],
+                     max_dist=[result['max_distance'] for result in eval_results])
+      log.info('save the results to %s', RECORD_FNAME)
 
     # Viz Preds
     if n_save_viz > 0:

@@ -49,8 +49,8 @@ def _safe_div(numerator, denominator, name):
       name=name)
 
 
-def mean(values, metrics_collections=None,
-         updates_collections=None, name=None):
+def _mean(values, metrics_collections=None,
+          updates_collections=None, name=None):
   """
   divide the total by counts, returns a mean value and a update_op
   """
@@ -77,8 +77,79 @@ def mean(values, metrics_collections=None,
 
     return mean_t, update_op
 
-  
-  return 
+
+def _std(values, metrics_collections=None,
+         updates_collections=None, name=None):
+  """
+  returns a std value and a update_op
+  """
+  with variable_scope.variable_scope(name, 'std', (values, )):
+    values = math_ops.to_float(values)
+
+    num_values = math_ops.to_float(array_ops.size(values))
+    mean_value = _safe_div(math_ops.reduce_sum(values), num_values, 'mean')
+
+    squared_deviation = math_ops.reduce_sum(math_ops.square(values - mean_value))
+
+    total = _create_local('total', shape=[])
+    count = _create_local('count', shape=[])
+
+    update_total_op = state_ops.assign_add(total, math_ops.sqrt(num_values * squared_deviation))
+    with ops.control_dependencies([values]):
+      update_count_op = state_ops.assign_add(count, num_values)
+
+    std_t = _safe_div(total, count, 'value')
+    update_op = _safe_div(update_total_op, update_count_op, 'update_op')
+
+    if metrics_collections:
+      ops.add_to_collections(metrics_collections, std_t)
+
+    if updates_collections:
+      ops.add_to_collections(updates_collections, update_op)
+
+    return std_t, update_op
+
+
+def _min(values, metrics_collections=None,
+         updates_collections=None, name=None):
+  """
+  returns a min value and a update_op
+  """
+  with variable_scope.variable_scope(name, 'min', (values, )):
+    values = math_ops.to_float(values)
+
+    min_local = _create_local('min', shape=[])
+    update_op = state_ops.assign_add(min_local, math_ops.reduce_min(values))
+    min_t = array_ops.identity(min_local)
+
+    if metrics_collections:
+      ops.add_to_collections(metrics_collections, min_t)
+
+    if updates_collections:
+      ops.add_to_collections(updates_collections, update_op)
+
+    return min_t, update_op
+
+
+def _max(values, metrics_collections=None,
+         updates_collections=None, name=None):
+  """
+  returns a max value and a update_op
+  """
+  with variable_scope.variable_scope(name, 'min', (values, )):
+    values = math_ops.to_float(values)
+
+    max_local = _create_local('max', shape=[])
+    update_op = state_ops.assign_add(max_local, math_ops.reduce_max(values))
+    max_t = array_ops.identity(max_local)
+
+    if metrics_collections:
+      ops.add_to_collections(metrics_collections, max_t)
+
+    if updates_collections:
+      ops.add_to_collections(updates_collections, update_op)
+
+    return max_t, update_op
 
 
 def mean_distance_metric(labels, predictions,
@@ -91,5 +162,61 @@ def mean_distance_metric(labels, predictions,
   squared_deistances = compute_squared_distance_by_instance(labels, predictions)
   distances = math_ops.sqrt(squared_deistances)
 
-  return mean(distances, metrics_collections,
-              updates_collections, name or 'mean_distance')
+  return _mean(distances, metrics_collections, updates_collections, name or 'mean_distance')
+
+
+def std_distance_metric(labels, predictions,
+                        metrics_collections=None,
+                        updates_collections=None,
+                        name=None):
+  """
+  calculate the std of distances in kilometer unit
+  """
+  squared_deistances = compute_squared_distance_by_instance(labels, predictions)
+  distances = math_ops.sqrt(squared_deistances)
+
+  return _std(distances, metrics_collections, updates_collections, name or 'std_distance')
+
+
+def min_distance_metric(labels, predictions,
+                        metrics_collections=None,
+                        updates_collections=None,
+                        name=None):
+  """
+  calculate the min of distances in kilometer unit
+  """
+  squared_deistances = compute_squared_distance_by_instance(labels, predictions)
+  distances = math_ops.sqrt(squared_deistances)
+
+  return _min(distances, metrics_collections, updates_collections, name or 'min_distance')
+
+
+def max_distance_metric(labels, predictions,
+                        metrics_collections=None,
+                        updates_collections=None,
+                        name=None):
+  """
+  calculate the min of distances in kilometer unit
+  """
+  squared_deistances = compute_squared_distance_by_instance(labels, predictions)
+  distances = math_ops.sqrt(squared_deistances)
+
+  return _max(distances, metrics_collections, updates_collections, name or 'max_distance')
+
+
+def summary_statistics_metric(labels, predictions,
+                              metrics_collections=None,
+                              updates_collections=None,
+                              name=None):
+  """
+  calculate the summary_statistics_metric of distances in kilometer unit
+  """
+  squared_deistances = compute_squared_distance_by_instance(labels, predictions)
+  distances = math_ops.sqrt(squared_deistances)
+
+  return (
+      _mean(distances, metrics_collections, updates_collections, name or 'mean_distance'),
+      _std(distances, metrics_collections, updates_collections, name or 'std_distance'),
+      _min(distances, metrics_collections, updates_collections, name or 'min_distance'),
+      _max(distances, metrics_collections, updates_collections, name or 'max_distance')
+  )
