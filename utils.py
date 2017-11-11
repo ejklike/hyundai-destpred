@@ -261,16 +261,8 @@ class DestinationVizualizer(object):
         self.dt_tst = dt_tst
 
         self.meta_tst = meta_tst # or None
-        if path_tst is None:
-            self.path_tst = None
-        else:
-            if len(path_tst.shape) == 1:
-                path_tst = path_tst.reshape(-1, 2) # from 1d to 2d data
-                self.path_tst = (path_tst[:len(path_tst)//2], 
-                                 path_tst[len(path)//2:])
-            else:
-                self.path_tst = path_tst[np.sum(path_tst, axis=1) != 0, :] # remove zero paddings
-
+        self.path_tst = path_tst
+        
         self.model_id = model_id
         self.save_dir = save_dir
 
@@ -288,11 +280,17 @@ class DestinationVizualizer(object):
         ]
 
         if self.path_tst is not None:
-            if isinstance(self.path_tst, list):
-                path_data_list += [('model_input', self.path_tst[0], 'mediumblue', '.'),
-                                   (None, self.path_tst[1], 'mediumblue', '.')]
+            input_path = self.path_tst[i]
+
+            if len(input_path.shape) == 1:
+                input_path = input_path.reshape(-1, 2) # from 1d to 2d data
+                input_path = (input_path[:len(input_path)//2], 
+                              input_path[len(input_path)//2:])
+                path_data_list += [('model_input', input_path[0], 'mediumblue', '.'),
+                                   (None, input_path[1], 'mediumblue', '.')]
             else:
-                path_data_list += [('model_input', self.path_tst, 'mediumblue', '.')]
+                input_path = input_path[np.sum(input_path, axis=1) != 0, :] # remove zero paddings
+                path_data_list += [('model_input', input_path, 'mediumblue', '.')]
 
         if self.meta_tst is not None:
             holiday, _, hour, weekday = self.meta_tst[i]
