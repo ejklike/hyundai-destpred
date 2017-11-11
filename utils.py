@@ -155,9 +155,9 @@ def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None, **kwarg
     plt.savefig(fname); plt.close()
 
 
-def visualize_dest_density(dest_trn, dest_tst, segment=10, fname=None, **kwargs):
-    if fname is None:
-        raise ValueError('You must enter the fname!')
+def visualize_dest_density(dest_trn, dest_tst, car_id, dest_term,
+                           density_segment=10, save_dir='viz'):
+    maybe_exist(save_dir)
 
     #min/max of plot axes
     all_points = np.concatenate([dest_trn, dest_tst], axis=0)
@@ -169,7 +169,7 @@ def visualize_dest_density(dest_trn, dest_tst, segment=10, fname=None, **kwargs)
     xmin, xmax = xmin - dx/10, xmax + dx/10
     ymin, ymax = ymin - dy/10, ymax + dy/10
     
-    #meshgrid for scoring
+    # meshgrid for density scoring
     nx, ny = (100, 100)
     dx, dy = (xmax-xmin)/nx, (ymax-ymin)/ny
     xgrid = np.linspace(xmin, xmax, nx)
@@ -194,7 +194,7 @@ def visualize_dest_density(dest_trn, dest_tst, segment=10, fname=None, **kwargs)
     ax.set_xlim([ymin, ymax])
     ax.set_ylim([xmin, xmax])
     cmap = plt.get_cmap('Blues')
-    levels = np.linspace(min_score, max_score, segment)
+    levels = np.linspace(min_score, max_score, density_segment)
     cs = ax.contourf(gridY, gridX, grid_score, levels=levels, cmap=cmap, origin='upper')
     fig.colorbar(cs, ax=ax, shrink=0.9)
 
@@ -225,100 +225,110 @@ def visualize_dest_density(dest_trn, dest_tst, segment=10, fname=None, **kwargs)
                        c=color, marker=marker, label=label, alpha=alpha)
     ax.legend(); ax.grid(True)
 
-    fname_without_extension = fname[:-4]
-    *save_dir, fname_without_dir = fname_without_extension.split('/')
-    maybe_exist('/'.join(save_dir))
-    car, dest, *_ = fname_without_dir.split('__')
-    title = '{car}, {dest}{setting}'.format(
-        car=car.upper(),
-        dest='FINAL DEST' if dest[-1] == '0' else 'DEST AFTER {} MIN.'.format(dest[-1]),
-        setting='' if not kwargs 
-                else ('\n(' + ', '.join(['{}={}'.format(k, v) for k, v in kwargs.items()]) + ')'))
-        # setting='' if centers is None else '\n(cband=%d, n_centers=%d)'%(cband, len(centers)))
-    title += '\n(bandwidth_rad={rad:.2f}, bandwidth_km={km:.1f})'.format(
-             rad=bandwidth, km=bandwidth_km)
-
-    ax_title = ax.set_title(title)
+    # SET TITLES
+    base_title = 'CAR_NO: {car_id}, DEST: {dest}\n(bandwidth_rad={rad:.2f}, bandwidth_km={km:.1f})'
+    dest_type = 'FINAL' if dest_term == 0 else 'AFTER_{}_MIN.'.format(dest_term)
+    title = base_title.format(car_id=str(car_id).rjust(3, '0'),
+                              dest=dest_type,
+                              rad=bandwidth, 
+                              km=bandwidth_km)
+    ax_title = ax.set_title(title, fontsize=12)
     fig.subplots_adjust(top=0.8)
-    plt.xlabel('longitude (translated)')
-    plt.ylabel('latitude (translated)')
+    plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
+    
+    # SAVE
+    fname = os.path.join(save_dir, '{}__CAR{}.png'.format(dest_type, str(car_id).rjust(3, '0')))
     plt.savefig(fname); plt.close()
 
 
-def visualize_predicted_destination(full_path_trn, fpath, meta, x, y_true, y_pred, fname=None):
-    if fname is None:
-        raise ValueError('You must enter the fname!')
+class DestinationVizualizer(object):
 
-    all_points_trn = np.concatenate(full_path_trn, axis=0)
+    def __init__(self, path_tst, meta_tst, dest_tst, full_path_tst, dt_tst,
+                 full_path_trn, model_id, save_dir='viz'):
+        maybe_exist(save_dir)
 
-    all_points_this_path = np.concatenate([fpath, y_pred.reshape(1, -1)], axis=0)
-    meta_str = '{weekday}{holiday}, {hour:00}h'.format(
-        weekday={0:'MON', 1:'TUE', 2:'WED', 3:'THU', 4:'FRI', 5:'SAT', 6:'SUN'}[meta[3]], 
-        holiday='(h)' if meta[0] == 1 else '', 
-        hour=meta[2]
-    )
+        self.training_path_points = np.concatenate(full_path_trn, axis=0)
+        self.full_path_tst = full_path_tst
+        self.dest_tst = dest_tst
+        self.dt_tst = dt_tst
 
-    # data, label, color, marker
-    # colorname from https://matplotlib.org/examples/color/named_colors.html
-    point_data_list = [
-        ('true_destination', y_true, 'mediumblue', '*'),
-        ('pred_destination', y_pred, 'crimson', '*'),
-        (meta_str, [-100, -100], 'white', ''),
-    ]
-    path_data_list = [ 
-        ('full_path', fpath, 'lightgrey', '.'),
-    ]
-    if x is not None:
-        if len(x.shape) == 1:
-            path = x.reshape(-1, 2) # from 1d to 2d data
-            fpath = fpath.reshape(-1, 2)
-            path_data_list.append(
-                ('model_input', path[:len(path)//2], 'mediumblue', '.')
-            )
-            path_data_list.append(
-                (None, path[len(path)//2:], 'mediumblue', '.')
-            )
+        self.meta_tst = meta_tst # or None
+        if path_tst is None:
+            self.path_tst = None
         else:
-            path = x[np.sum(x, axis=1) != 0, :] # remove zero paddings
-            path_data_list.append(
-                ('model_input', path, 'mediumblue', '.')
+            if len(path_tst.shape) == 1:
+                path_tst = path_tst.reshape(-1, 2) # from 1d to 2d data
+                self.path_tst = (path_tst[:len(path_tst)//2], 
+                                 path_tst[len(path)//2:])
+            else:
+                self.path_tst = path_tst[np.sum(path_tst, axis=1) != 0, :] # remove zero paddings
+
+        self.model_id = model_id
+        self.save_dir = save_dir
+
+    def plot_and_save(self, y_pred, i, **kwargs):
+        # data, label, color, marker
+        # colorname from https://matplotlib.org/examples/color/named_colors.html
+        y_true = self.dest_tst[i]
+        full_path = self.full_path_tst[i]
+        point_data_list = [
+            ('true_destination', y_true, 'mediumblue', '*'),
+            ('pred_destination', y_pred, 'crimson', '*'),
+        ]
+        path_data_list = [ 
+            ('full_path', full_path, 'lightgrey', '.'),
+        ]
+
+        if self.path_tst is not None:
+            if isinstance(self.path_tst, list):
+                path_data_list += [('model_input', self.path_tst[0], 'mediumblue', '.'),
+                                   (None, self.path_tst[1], 'mediumblue', '.')]
+            else:
+                path_data_list += [('model_input', self.path_tst, 'mediumblue', '.')]
+
+        if self.meta_tst is not None:
+            holiday, _, hour, weekday = self.meta_tst[i]
+            meta_str = '{hour:00} {ampm}, {weekday}{holiday}'.format(
+                weekday={0:'MON', 1:'TUE', 2:'WED', 3:'THU', 4:'FRI', 5:'SAT', 6:'SUN'}[weekday], 
+                holiday='(h)' if holiday == 1 else '', 
+                hour=12 if hour % 12 == 0 else (hour % 12),
+                ampm='AM' if hour < 12 else 'PM'
             )
-        # point_data_list.append(
-        #     ('starting_point', path[0], 'mediumblue', '.')
-        # )
+            point_data_list += [(meta_str, [-100, -100], 'white', '')]
 
-    fig, ax = plt.subplots()
-    xmin, ymin = np.min(all_points_this_path, axis=0)
-    xmax, ymax = np.max(all_points_this_path, axis=0)
-    dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
-    ax.set_xlim([ymin - dy, ymax + dy])
-    ax.set_ylim([xmin - dx, xmax + dx])
-    ax.scatter(all_points_trn[:, 1], all_points_trn[:, 0], 
-               c='greenyellow', marker='.', s=10, alpha=0.3)
-    for label, path, color, marker in path_data_list:
-        ax.plot(path[:, 1], path[:, 0], c=color, marker=marker, label=label)
-    for label, point, color, marker in point_data_list:
-        ax.scatter(point[1], point[0], 
-                   c=color, marker=marker, label=label, s=100)#, linewidths=10)
-    ax.legend()
-    ax.grid(True)
+        fig, ax = plt.subplots()
+        
+        # set xlim and ylim of viz
+        all_points_this_path = np.concatenate([full_path, y_pred.reshape(1, -1)], axis=0)
+        xmin, ymin = np.min(all_points_this_path, axis=0)
+        xmax, ymax = np.max(all_points_this_path, axis=0)
+        dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
+        ax.set_xlim([ymin - dy, ymax + dy])
+        ax.set_ylim([xmin - dx, xmax + dx])
 
-    # SET TITLE and SAVE
-    fname_without_extension = fname[:-4]
-    *save_dir, fname_without_dir = fname_without_extension.split('/')
-    maybe_exist('/'.join(save_dir))
-    car, dest, *exp_setting, start_dt = fname_without_dir.split('__')
-    title = '{car}, {start_dt}, {dest}\nSETTING: {setting}'.format(
-        car=car.upper(),
-        start_dt=start_dt,
-        dest='FINAL DEST' if dest[-1] == '0' else 'AFTER {} MIN.'.format(dest[-1]),
-        setting='__'.join(exp_setting))
-    title += '\n(dist_rad={dist_rad:.3f}, dist_km={dist_km:.2f})'.format(
-        dist_rad=dist(y_true, y_pred, to_km=False),
-        dist_km=dist(y_true, y_pred, to_km=True))
-    ax_title = ax.set_title(title)
-    fig.subplots_adjust(top=0.8)
-    plt.xlabel('longitude (translated)')
-    plt.ylabel('latitude (translated)')
-    plt.savefig(fname)
-    plt.close()
+        # scatter points and plot path
+        ax.scatter(self.training_path_points[:, 1], self.training_path_points[:, 0], 
+                   c='greenyellow', marker='.', s=10, alpha=0.3)
+        for label, path, color, marker in path_data_list:
+            ax.plot(path[:, 1], path[:, 0], c=color, marker=marker, label=label)
+        for label, point, color, marker in point_data_list:
+            ax.scatter(point[1], point[0], 
+                    c=color, marker=marker, label=label, s=100)#, linewidths=10)
+        ax.legend(); ax.grid(True)
+
+        # SET TITLES
+        start_dt = convert_time_for_fname(self.dt_tst[i])
+        title = ('{model_id}'
+                 '\nSTART_DT={start_dt}'
+                 '\n(dist_rad={dist_rad:.3f}, dist_km={dist_km:.2f})')
+        title = title.format(model_id=self.model_id,
+                             start_dt=start_dt,
+                             dist_rad=dist(y_true, y_pred, to_km=False),
+                             dist_km=dist(y_true, y_pred, to_km=True))
+        ax_title = ax.set_title(title, fontsize=12)
+        fig.subplots_adjust(top=0.8)
+        plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
+        
+        # SAVE
+        fname = os.path.join(self.save_dir, start_dt + '__' + self.model_id + '.png')
+        plt.savefig(fname); plt.close()
