@@ -22,7 +22,8 @@ def compute_distance_by_instance(labels, predictions):
       math_ops.to_float(weights), squared_delta)
   squared_rescaled = math_ops.multiply(squared_delta, weights)
   sum_of_squared_rescaled = math_ops.reduce_sum(squared_rescaled, 1)
-  return math_ops.sqrt(sum_of_squared_rescaled) * unit
+  return sum_of_squared_rescaled * unit
+  #return math_ops.sqrt(sum_of_squared_rescaled) * unit
 
 
 def compute_loss(losses, scope=None, 
