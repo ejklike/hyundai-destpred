@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.contrib import rnn
 
 from custom_loss import mean_squared_distance_loss
-from custom_metric import mean_distance_metric
+from custom_metric import summary_statistics_metric
 
 
 def _variable_on_cpu(name, shape):
@@ -148,9 +148,14 @@ def model_fn(features, labels, mode, params):
   # LOSS for validation
   loss_val = mean_squared_distance_loss(labels_val, predictions_val, scope='loss_val')
   
+  _mean, _std, _min, _max = summary_statistics_metric(labels, predictions)
+
   # evaluation metric
   eval_metric_ops = dict(
-    mean_distance=mean_distance_metric(labels, predictions)
+      mean_distance=_mean,
+      std_distance=_std,
+      min_distance=_min,
+      max_distance=_max,
   )
 
   # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
