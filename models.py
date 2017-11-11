@@ -1,7 +1,8 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
 
-from custom_loss import distance_loss
+from custom_loss import mean_squared_distance_loss
+from custom_metric import mean_distance_metric
 
 
 def _variable_on_cpu(name, shape):
@@ -138,15 +139,19 @@ def model_fn(features, labels, mode, params):
 
   # Define loss, optimizer, and train_op
   labels = tf.cast(labels, dtype=tf.float32)
-  loss = distance_loss(labels, predictions)
+  loss = mean_squared_distance_loss(labels, predictions)
   optimizer = tf.train.AdamOptimizer(
       learning_rate=params["learning_rate"])
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
 
   # LOSS for validation
-  loss_val = distance_loss(labels_val, predictions_val, scope='loss_val')
-  eval_metric_ops = None
+  loss_val = mean_squared_distance_loss(labels_val, predictions_val, scope='loss_val')
+  
+  # evaluation metric
+  eval_metric_ops = dict(
+    mean_distance=mean_distance_metric(labels, predictions)
+  )
 
   # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
   return tf.estimator.EstimatorSpec(

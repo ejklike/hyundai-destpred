@@ -150,16 +150,16 @@ def train_eval_save(car_id, proportion, dest_term,
     # Score evaluation
     ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
     global_step = nn.evaluate(input_fn=eval_input_fn_trn, 
-                                checkpoint_path=ckpt_path, name='tmp')['global_step']
-    print('evaluating @ {}, restoring from {}'.format(global_step, ckpt_path))
+                              checkpoint_path=ckpt_path, name='step')['global_step']
+    print('evaluating @ {}, restoring from {}'.format(global_step-1, ckpt_path))
 
     trn_err = nn.evaluate(input_fn=eval_input_fn_trn, 
-                            checkpoint_path=ckpt_path, name='trn')['loss']
+                          checkpoint_path=ckpt_path, name='trn')['mean_distance']
     val_err = nn.evaluate(input_fn=eval_input_fn_val, 
-                            checkpoint_path=ckpt_path, name='val')['loss']
+                          checkpoint_path=ckpt_path, name='val')['mean_distance']
     tst_err = nn.evaluate(input_fn=eval_input_fn_tst, 
-                            checkpoint_path=ckpt_path, name='tst')['loss']
-    
+                          checkpoint_path=ckpt_path, name='tst')['mean_distance']
+
     log.warning(model_id)
     log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
 

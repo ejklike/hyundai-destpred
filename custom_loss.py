@@ -5,8 +5,8 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import weights_broadcast_ops
 from tensorflow.python.ops.losses import util
 
-def compute_distance_by_instance(labels, predictions):
-  """compute distance
+def compute_squared_distance_by_instance(labels, predictions):
+  """compute the squared distance by instance
   input: labels, predictions
   return: a tensor of size (batch_size, )
   """
@@ -22,15 +22,14 @@ def compute_distance_by_instance(labels, predictions):
       math_ops.to_float(weights), squared_delta)
   squared_rescaled = math_ops.multiply(squared_delta, weights)
   sum_of_squared_rescaled = math_ops.reduce_sum(squared_rescaled, 1)
-  return sum_of_squared_rescaled * unit
-  #return math_ops.sqrt(sum_of_squared_rescaled) * unit
+  return sum_of_squared_rescaled
 
 
-def compute_loss(losses, scope=None, 
-                 loss_collection=ops.GraphKeys.LOSSES):
-  """Computes the loss.
+def compute_mean_loss(losses, scope=None, 
+                      loss_collection=ops.GraphKeys.LOSSES):
+  """Computes the mean loss.
   """
-  with ops.name_scope(scope, "weighted_loss", (losses, )):
+  with ops.name_scope(scope, "mean_loss", (losses, )):
     losses = ops.convert_to_tensor(losses)
     input_dtype = losses.dtype
     losses = math_ops.to_float(losses)
@@ -42,23 +41,22 @@ def compute_loss(losses, scope=None,
     return loss
 
 
-def distance_loss(
-    labels, predictions, scope=None,
-    add_collection=False):
+def mean_squared_distance_loss(labels, predictions, scope=None,
+                               add_collection=False):
   """
-  Adds a Sum-of-Squares loss to the training procedure.
+  Adds a Mean-squared-distance loss to the training procedure.
   """
   if labels is None:
     raise ValueError("labels must not be None.")
   if predictions is None:
     raise ValueError("predictions must not be None.")
-  with ops.name_scope(scope, "distance_error",
+  with ops.name_scope(scope, "squared_distance_loss",
                       (predictions, labels)) as scope:
     predictions = math_ops.to_float(predictions)
     labels = math_ops.to_float(labels)
     predictions.get_shape().assert_is_compatible_with(labels.get_shape())
 
-    distance_losses = compute_distance_by_instance(predictions, labels)
+    squared_distances = compute_squared_distance_by_instance(predictions, labels)
 
     loss_collection = ops.GraphKeys.LOSSES if add_collection else None
-    return compute_loss(distance_losses, scope, loss_collection=loss_collection)
+    return compute_mean_loss(squared_distances, scope, loss_collection=loss_collection)
