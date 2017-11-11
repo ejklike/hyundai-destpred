@@ -12,6 +12,7 @@ from tqdm import tqdm
 from utils import get_pkl_file_name, convert_str_to_time
 
 DATA_DIR = './data'
+DATA_FNAME = 'dest_route_pred_sample.csv'
 HOLIDAY_JSON_FNAME = 'kor_event_days.json'
 INPUT_DATA_EXT = '.csv'
 OUTPUT_DATA_EXT = '.p'
@@ -122,7 +123,7 @@ class DataPreprocessor(object):
 
     def _load_and_parse_data(self):
         header = ['car_id', 'start_dt', 'seq_id', 'x', 'y', 'link_id']
-        df = pd.read_csv(self.data_path, header=None,
+        df = pd.read_csv(os.path.join(self.from_dir, DATA_FNAME), header=None,
                            delimiter=',', names=header, low_memory=False, 
                            dtype={'link_id': str})
         
