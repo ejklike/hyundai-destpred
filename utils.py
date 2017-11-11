@@ -49,51 +49,74 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
 
 
 def load_data(fname, k=0):
-  """
-  input data:
+    """
+    input data:
       paths: list of path nparrays
       metas: list of meta lists
       dests: list of dest nparrays
-  output data:
+    output data:
       paths: nparray of shape [data_size, ***]
       metas: nparray of shape [data_size, meta_size]
       dests: nparray of shape [data_size, 2]
-  """
-  data = pickle.load(open(fname, 'rb'))
-  paths, metas, dests = data['path'], data['meta'], data['dest']
-  full_paths, dts = data['full_path'], data['dt']
+    """
+    data = pickle.load(open(fname, 'rb'))
+    paths, metas, dests = data['path'], data['meta'], data['dest']
+    full_paths, dts = data['full_path'], data['dt']
 
-  if k == 0: # RNN or NO PATH
-    def resize_by_padding(path, target_length):
-      """add zero padding prior to the given path"""
-      path_length = path.shape[0]
-      pad_width = ((target_length - path_length, 0), (0, 0))
-      return np.lib.pad(path, pad_width, 'constant', constant_values=0)
+    if k == 0: # RNN or NO PATH
+        def resize_by_padding(path, target_length):
+            """add zero padding prior to the given path"""
+            path_length = path.shape[0]
+            pad_width = ((target_length - path_length, 0), (0, 0))
+            return np.lib.pad(path, pad_width, 'constant', constant_values=0)
     
-    max_length = max(p.shape[0] for p in paths)
-    paths = [resize_by_padding(p, max_length) for p in paths]
-    paths = np.stack(paths, axis=0)
+        max_length = max(p.shape[0] for p in paths)
+        paths = [resize_by_padding(p, max_length) for p in paths]
+        paths = np.stack(paths, axis=0)
 
-  else: # DNN
-    def resize_to_2k(path, k):
-      """remove middle portion of the given path (np array)"""
-        # When the prefix of the trajectory contains less than
-        # 2k points, the first and last k points overlap
-        # (De Brébisson, Alexandre, et al., 2015)
-      if len(path) < k: 
-        front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
-      else:
-        front_k, back_k = path[:k], path[-k:]
-      return np.concatenate([front_k, back_k], axis=0)
+    else: # DNN
+        def resize_to_2k(path, k):
+            """remove middle portion of the given path (np array)"""
+            # When the prefix of the trajectory contains less than
+            # 2k points, the first and last k points overlap
+            # (De Brébisson, Alexandre, et al., 2015)
+            if len(path) < k: 
+                front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
+            else:
+                front_k, back_k = path[:k], path[-k:]
+            return np.concatenate([front_k, back_k], axis=0)
 
-    paths = [resize_to_2k(p, k) for p in paths]
-    paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
-  
-  metas, dests = np.array(metas), np.array(dests)
+        paths = [resize_to_2k(p, k) for p in paths]
+        paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
+    
+    metas, dests = np.array(metas), np.array(dests)
+    
+    return paths, metas, dests, dts, full_paths
 
-  return paths, metas, dests, dts, full_paths
-
-
+def load_multiple_data(fname_list, k=0):
+    
+    paths_list = []
+    metas_list = []
+    dests_list = []
+    dts_list = []
+    full_paths_list = []
+    
+    for fname in fname_list:
+        paths, metas, dests, dts, full_paths = load_data(fname, k=k)
+        paths_list.append(paths)
+        metas_list.append(metas)
+        dests_list.append(dests)
+        dts_list.append(dts)
+        full_paths_list.append(full_paths)
+    
+    paths_list = np.concatenate(paths_list)
+    metas_list = np.concatenate(metas_list)
+    dests_list = np.concatenate(dests_list)
+    dts_list = np.concatenate(dts_list)
+    full_paths_list = np.concatenate(full_paths_list)
+    
+    return paths_list, metas_list, dests_list, dts_list, full_paths_list
+    
 def record_results(fname, model_id, trn_size, val_size, tst_size, 
                    global_step, trn_err, val_err, tst_err):
     if not os.path.exists(fname):
@@ -106,12 +129,12 @@ def record_results(fname, model_id, trn_size, val_size, tst_size,
 
 
 def kde_divergence(dest_old, dest_new, bandwidth=0.1):
-  kde_old = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_old)
-  kde_new = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_new)
-  dest_all = np.concatenate([dest_old, dest_new], axis=0)
-  score_old = np.exp(kde_old.score_samples(dest_all))
-  score_new = np.exp(kde_new.score_samples(dest_all))
-  return entropy(score_new, qk=score_old)
+    kde_old = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_old)
+    kde_new = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_new)
+    dest_all = np.concatenate([dest_old, dest_new], axis=0)
+    score_old = np.exp(kde_old.score_samples(dest_all))
+    score_new = np.exp(kde_new.score_samples(dest_all))
+    return entropy(score_new, qk=score_old)
 
 
 def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None, **kwargs):
