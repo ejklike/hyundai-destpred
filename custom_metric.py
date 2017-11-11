@@ -136,7 +136,7 @@ def _max(values, metrics_collections=None,
   """
   returns a max value and a update_op
   """
-  with variable_scope.variable_scope(name, 'min', (values, )):
+  with variable_scope.variable_scope(name, 'max', (values, )):
     values = math_ops.to_float(values)
 
     max_local = _create_local('max', shape=[])
