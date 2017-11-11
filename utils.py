@@ -245,10 +245,13 @@ def visualize_dest_density(dest_trn, dest_tst, segment=10, fname=None, **kwargs)
     plt.savefig(fname); plt.close()
 
 
-def visualize_predicted_destination(full_path, meta, x, y_true, y_pred, fname=None):
+def visualize_predicted_destination(full_path_trn, fpath, meta, x, y_true, y_pred, fname=None):
     if fname is None:
         raise ValueError('You must enter the fname!')
 
+    all_points_trn = np.concatenate(full_path_trn, axis=0)
+
+    all_points_this_path = np.concatenate([fpath, y_pred.reshape(1, -1)], axis=0)
     meta_str = '{weekday}{holiday}, {hour:00}h'.format(
         weekday={0:'MON', 1:'TUE', 2:'WED', 3:'THU', 4:'FRI', 5:'SAT', 6:'SUN'}[meta[3]], 
         holiday='(h)' if meta[0] == 1 else '', 
@@ -263,12 +266,12 @@ def visualize_predicted_destination(full_path, meta, x, y_true, y_pred, fname=No
         (meta_str, [-100, -100], 'white', ''),
     ]
     path_data_list = [ 
-        ('full_path', full_path, 'lightgrey', '.'),
+        ('full_path', fpath, 'lightgrey', '.'),
     ]
     if x is not None:
         if len(x.shape) == 1:
             path = x.reshape(-1, 2) # from 1d to 2d data
-            full_path = full_path.reshape(-1, 2)
+            fpath = fpath.reshape(-1, 2)
             path_data_list.append(
                 ('model_input', path[:len(path)//2], 'mediumblue', '.')
             )
@@ -285,6 +288,13 @@ def visualize_predicted_destination(full_path, meta, x, y_true, y_pred, fname=No
         # )
 
     fig, ax = plt.subplots()
+    xmin, ymin = np.min(all_points_this_path, axis=0)
+    xmax, ymax = np.max(all_points_this_path, axis=0)
+    dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
+    ax.set_xlim([ymin - dy, ymax + dy])
+    ax.set_ylim([xmin - dx, xmax + dx])
+    ax.scatter(all_points_trn[:, 1], all_points_trn[:, 0], 
+               c='greenyellow', marker='.', s=10, alpha=0.3)
     for label, path, color, marker in path_data_list:
         ax.plot(path[:, 1], path[:, 0], c=color, marker=marker, label=label)
     for label, point, color, marker in point_data_list:

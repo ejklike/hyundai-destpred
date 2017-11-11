@@ -44,7 +44,7 @@ def train_eval_save(car_id, proportion, dest_term,
       DATA_DIR,
       get_pkl_file_name(car_id, proportion, dest_term, train=False))
 
-  path_trn, meta_trn, dest_trn, _, _ = load_data(fname_trn, k=params['k'])
+  path_trn, meta_trn, dest_trn, _, fpath_trn = load_data(fname_trn, k=params['k'])
   path_tst, meta_tst, dest_tst, dt_tst, fpath_tst = load_data(fname_tst, k=params['k'])
 #   print([fpath for fpath in fpath_tst])
 
@@ -146,51 +146,53 @@ def train_eval_save(car_id, proportion, dest_term,
              steps=FLAGS.steps, 
              hooks=[early_stopping_hook])
 
-  # Score evaluation
-  ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
-  global_step = nn.evaluate(input_fn=eval_input_fn_trn, 
-                            checkpoint_path=ckpt_path, name='tmp')['global_step']
-  print('evaluating @ {}, restoring from {}'.format(global_step, ckpt_path))
+  try:
+    # Score evaluation
+    ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
+    global_step = nn.evaluate(input_fn=eval_input_fn_trn, 
+                                checkpoint_path=ckpt_path, name='tmp')['global_step']
+    print('evaluating @ {}, restoring from {}'.format(global_step, ckpt_path))
 
-  trn_err = nn.evaluate(input_fn=eval_input_fn_trn, 
-                        checkpoint_path=ckpt_path, name='trn')['loss']
-  val_err = nn.evaluate(input_fn=eval_input_fn_val, 
-                        checkpoint_path=ckpt_path, name='val')['loss']
-  tst_err = nn.evaluate(input_fn=eval_input_fn_tst, 
-                        checkpoint_path=ckpt_path, name='tst')['loss']
-  
-  log.warning(model_id)
-  log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
+    trn_err = nn.evaluate(input_fn=eval_input_fn_trn, 
+                            checkpoint_path=ckpt_path, name='trn')['loss']
+    val_err = nn.evaluate(input_fn=eval_input_fn_val, 
+                            checkpoint_path=ckpt_path, name='val')['loss']
+    tst_err = nn.evaluate(input_fn=eval_input_fn_tst, 
+                            checkpoint_path=ckpt_path, name='tst')['loss']
+    
+    log.warning(model_id)
+    log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
 
-  if FLAGS.train:
-    record_results(RECORD_FNAME, model_id, 
-                   len(path_trn), len(path_val), len(path_tst),
-                   global_step, trn_err, val_err, tst_err)
+    if FLAGS.train:
+      record_results(RECORD_FNAME, model_id, 
+                     len(path_trn), len(path_val), len(path_tst),
+                     global_step, trn_err, val_err, tst_err)
 
-  # Viz Preds
-  if n_save_viz > 0:
-    maybe_exist(VIZ_DIR)
+    # Viz Preds
+    if n_save_viz > 0:
+      maybe_exist(VIZ_DIR)
 
-    input_dict_pred = dict((key, array[:n_save_viz]) 
-                           for key, array in input_dict_tst.items())
-    pred_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x=input_dict_pred,
-        num_epochs=1, 
-        shuffle=False)
+      input_dict_pred = dict((key, array[:n_save_viz]) 
+                          for key, array in input_dict_tst.items())
+      pred_input_fn = tf.estimator.inputs.numpy_input_fn(
+          x=input_dict_pred,
+          num_epochs=1, 
+          shuffle=False)
 
-    pred_tst = nn.predict(input_fn=pred_input_fn)
-    for i, pred in enumerate(pred_tst):
-      fname = '{viz_dir}/{model_id}__{start_dt}.png'.format(
-            viz_dir=VIZ_DIR, 
-            model_id=model_id, 
-            start_dt=convert_time_for_fname(dt_tst[i]))
-      visualize_predicted_destination(
-          fpath_tst[i], 
-          meta_tst[i],
-          path_tst[i] if proportion > 0 else None, 
-          dest_tst[i], pred, fname=fname)
-
-  return trn_err, val_err, tst_err
+      pred_tst = nn.predict(input_fn=pred_input_fn)
+      for i, pred in enumerate(pred_tst):
+        fname = '{viz_dir}/{start_dt}__{model_id}.png'.format(
+                viz_dir=VIZ_DIR, 
+                model_id=model_id, 
+                start_dt=convert_time_for_fname(dt_tst[i]))
+        visualize_predicted_destination(
+            fpath_trn,
+            fpath_tst[i], 
+            meta_tst[i],
+            path_tst[i] if proportion > 0 else None, 
+            dest_tst[i], pred, fname=fname)
+  except ValueError:
+    log.error('NO MODEL FOR %s' %model_id)
 
 
 def main(_):
@@ -212,12 +214,19 @@ def main(_):
   # 61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
   # 81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 
   # ] # all
-  car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
-    'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
-  19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-  39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
-  61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 
+  car_id_list = [
+    82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100
   ]
+  # car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
+  #   'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
+  #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
+  #   39, 42, 43, 44, 45, 46, 47, 49, 50
+  # ]
+  # car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
+  #   52, 53, 54, 55, 56, 57, 58, 59, 60, 
+  #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
+  #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 
+  # ]
 #   car_id_list = ['KMH']
 
   # input path specification
