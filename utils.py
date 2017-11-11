@@ -102,21 +102,46 @@ def load_multiple_data(fname_list, k=0):
     full_paths_list = []
     
     for fname in fname_list:
-        paths, metas, dests, dts, full_paths = load_data(fname, k=k)
-        paths_list.append(paths)
-        metas_list.append(metas)
-        dests_list.append(dests)
-        dts_list.append(dts)
-        full_paths_list.append(full_paths)
-    
-    paths_list = np.concatenate(paths_list)
-    metas_list = np.concatenate(metas_list)
-    dests_list = np.concatenate(dests_list)
-    dts_list = np.concatenate(dts_list)
-    full_paths_list = np.concatenate(full_paths_list)
-    
-    return paths_list, metas_list, dests_list, dts_list, full_paths_list
-    
+        data = pickle.load(open(fname, 'rb'))
+        paths, metas, dests = data['path'], data['meta'], data['dest']
+        full_paths, dts = data['full_path'], data['dt']
+        paths_list.extend(paths)
+        metas_list.extend(metas)
+        dests_list.extend(dests)
+        full_paths_list.extend(full_paths)
+        dts_list.extend(dts)
+
+    if k == 0:  # RNN or NO PATH
+        def resize_by_padding(path, target_length):
+            """add zero padding prior to the given path"""
+            path_length = path.shape[0]
+            pad_width = ((target_length - path_length, 0), (0, 0))
+            return np.lib.pad(path, pad_width, 'constant', constant_values=0)
+
+        max_length = max(p.shape[0] for p in paths_list)
+        paths = [resize_by_padding(p, max_length) for p in paths_list]
+        paths = np.stack(paths, axis=0)
+
+    else:  # DNN
+        def resize_to_2k(path, k):
+            """remove middle portion of the given path (np array)"""
+            # When the prefix of the trajectory contains less than
+            # 2k points, the first and last k points overlap
+            # (De Brébisson, Alexandre, et al., 2015)
+            if len(path) < k:
+                front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
+            else:
+                front_k, back_k = path[:k], path[-k:]
+            return np.concatenate([front_k, back_k], axis=0)
+
+        paths = [resize_to_2k(p, k) for p in paths_list]
+        paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
+
+    metas, dests = np.array(metas_list), np.array(dests_list)
+
+    return paths, metas, dests, dts_list, full_paths_list
+
+
 def record_results(fname, model_id, trn_size, val_size, tst_size, 
                    global_step, trn_err, val_err, tst_err):
     if not os.path.exists(fname):
