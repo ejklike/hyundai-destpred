@@ -122,7 +122,7 @@ class DataPreprocessor(object):
 
     def _load_and_parse_data(self):
         header = ['car_id', 'start_dt', 'seq_id', 'x', 'y', 'link_id']
-        df = pd.read_csv(self.data_path, header=None,
+        df = pd.read_csv(self.from_path, header=None,
                            delimiter=',', names=header, low_memory=False, 
                            dtype={'link_id': str})
         
