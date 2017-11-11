@@ -142,14 +142,14 @@ def load_multiple_data(fname_list, k=0):
     return paths, metas, dests, dts_list, full_paths_list
 
 
-def record_results(fname, model_id, trn_size, val_size, tst_size, 
+def record_results(fname, model_id, trn_size, val_size, tst_size,
                    global_step, trn_err, val_err, tst_err):
     if not os.path.exists(fname):
         with open(fname, 'w') as fout:
             fout.write('model_id,trn_size,val_size,tst_size,global_step,trn_err,val_err,tst_err\n')
     with open(fname, 'a') as fout:
         fout.write('{},{},{},{},{},{},{},{}\n'
-                   .format(model_id, trn_size, val_size, tst_size, 
+                   .format(model_id, trn_size, val_size, tst_size,
                            global_step, trn_err, val_err, tst_err))
 
 
