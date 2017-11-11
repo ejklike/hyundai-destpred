@@ -94,15 +94,23 @@ def load_data(fname, k=0):
   return paths, metas, dests, dts, full_paths
 
 
-def record_results(fname, model_id, trn_size, val_size, tst_size, 
-                   global_step, trn_err, val_err, tst_err):
+def record_results(fname, model_id, data_size, global_step, 
+                   mean_dist, std_dist, min_dist, max_dist):
     if not os.path.exists(fname):
         with open(fname, 'w') as fout:
-            fout.write('model_id,trn_size,val_size,tst_size,global_step,trn_err,val_err,tst_err\n')
+            fout.write('model_id,')
+            fix = ['trn', 'val', 'tst']
+            fout.write(''.join([s + '_size,' for s in fix]))
+            fout.write('global_step,')
+            fout.write(''.join(['mean_' + s + ',' for s in fix]))
+            fout.write(''.join(['std_' + s + ',' for s in fix]))
+            fout.write(''.join(['min_' + s + ',' for s in fix]))
+            fout.write(''.join(['max_' + s + ',' for s in fix]))                
+            fout.write('\n')
     with open(fname, 'a') as fout:
-        fout.write('{},{},{},{},{},{},{},{}\n'
-                   .format(model_id, trn_size, val_size, tst_size, 
-                           global_step, trn_err, val_err, tst_err))
+        base_str = '{},' * (2 + 3 * 5) + '\n'
+        fout.write(base_str.format(model_id, *data_size, global_step, 
+                                   *mean_dist, *std_dist, *min_dist, *max_dist))
 
 
 def kde_divergence(dest_old, dest_new, bandwidth=0.1):
