@@ -27,7 +27,7 @@ def convert_time_for_fname(date_time):
     return date_time.strftime('%Y%m%d_%H%M%S')
 
 
-def dist(x, y, to_km=False):
+def dist(x, y, to_km=False, std=False):
     rad_to_km = np.array([111.0, 88.8])
     
     x, y = np.array(x).reshape(-1, 2), np.array(y).reshape(-1, 2)
@@ -35,7 +35,10 @@ def dist(x, y, to_km=False):
     if to_km is True:
         delta_square *= rad_to_km**2
     distances = np.sqrt(np.sum(delta_square, axis=1))
-    return np.sum(distances)
+    if std is False:
+        return np.mean(distances)
+    else:
+        return np.mean(distances), np.std(distances)
 
 
 def get_pkl_file_name(car_id, proportion, dest_term, train=True):
@@ -316,6 +319,49 @@ def visualize_predicted_destination(full_path_trn, fpath, meta, x, y_true, y_pre
     title += '\n(dist_rad={dist_rad:.3f}, dist_km={dist_km:.2f})'.format(
         dist_rad=dist(y_true, y_pred, to_km=False),
         dist_km=dist(y_true, y_pred, to_km=True))
+    ax_title = ax.set_title(title)
+    fig.subplots_adjust(top=0.8)
+    plt.xlabel('longitude (translated)')
+    plt.ylabel('latitude (translated)')
+    plt.savefig(fname)
+    plt.close()
+
+    
+def visualize_pred_error(y_true, y_pred, fname=None):
+    
+    if fname is None:
+        raise ValueError('You must enter the fname!')
+
+    y_pred = [x for x in y_pred]
+    all_points = np.concatenate([y_true, y_pred], axis=0)
+
+    fig, ax = plt.subplots()
+    xmin, ymin = np.min(all_points, axis=0)
+    xmax, ymax = np.max(all_points, axis=0)
+    dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
+    ax.set_xlim([ymin - dy, ymax + dy])
+    ax.set_ylim([xmin - dx, xmax + dx])
+    
+    ax.scatter([x[1] for x in y_true], [x[0] for x in y_true], 
+                c='crimson', marker='.', label='true_destination', alpha=0.3, s=50, linewidths=3)
+    ax.scatter([x[1] for x in y_pred], [x[0] for x in y_pred], 
+               c='mediumblue', marker='.', label='pred_destination', alpha=0.3, s=50, linewidths=3)
+
+    for y1, y2 in zip(y_true, y_pred):
+        plt.plot((y1[1], y2[1]), (y1[0], y2[0]), ':', c='xkcd:midnight blue', alpha=0.3)
+    ax.legend()
+    ax.grid(True)
+
+    # SET TITLE and SAVE
+    fname_without_extension = fname[:-4]
+    *save_dir, fname_without_dir = fname_without_extension.split('/')
+    maybe_exist('/'.join(save_dir))
+    car, dest, *exp_setting, _ = fname_without_dir.split('__')
+    title = '{car}, {dest}\nSETTING: {setting}'.format(
+        car=car.upper(),
+        dest='FINAL DEST' if dest[-1] == '0' else 'AFTER {} MIN.'.format(dest[-1]),
+        setting='__'.join(exp_setting))
+    title += '\n(dist_mean: %.3f (%.3f) rad, %.2f (%.2f) km '%(*dist(y_true, y_pred, to_km=False, std=True), *dist(y_true, y_pred, to_km=True, std=True))
     ax_title = ax.set_title(title)
     fig.subplots_adjust(top=0.8)
     plt.xlabel('longitude (translated)')
