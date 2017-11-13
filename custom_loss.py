@@ -1,7 +1,9 @@
 """ ========= LOSS FOR TRAIN ========= """
 
+from numpy import pi as pi_const
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import weights_broadcast_ops
 from tensorflow.python.ops.losses import util
 
@@ -60,3 +62,42 @@ def mean_squared_distance_loss(labels, predictions, scope=None,
 
     loss_collection = ops.GraphKeys.LOSSES if add_collection else None
     return compute_mean_loss(squared_distances, scope, loss_collection=loss_collection)
+
+
+def neg_log_likelihood_loss(labels, pi, m1, m2, s1, s2, rho, scope=None,
+                            add_collection=False):
+  """
+  Adds a Mean neg_log_likelihood loss to the training procedure.
+   : P(labels | params returned by model)
+  """
+  with ops.name_scope(scope, "neg_lig_likelihood_loss",
+                      (labels, pi, m1, m2, s1, s2, rho, )) as scope:
+
+    nll_losses = compute_neg_log_likelihood_by_instance(labels, pi, m1, m2, s1, s2, rho)
+
+    loss_collection = ops.GraphKeys.LOSSES if add_collection else None
+    return compute_mean_loss(nll_losses, scope, loss_collection=loss_collection)
+
+
+def compute_neg_log_likelihood_by_instance(labels, pi, m1, m2, s1, s2, rho):
+  """
+  return neg_log_likelihood
+  """
+  # eq # 24 and 25 of http://arxiv.org/abs/1308.0850
+  x1, x2 = array_ops.split(labels, num_or_size_splits=2, axis=1, name='label_split')
+  # subtract DOES SUPPORT broadcasting!
+  n1_s1 = math_ops.div(math_ops.subtract(x1, m1), s1)
+  n2_s2 = math_ops.div(math_ops.subtract(x2, m2), s2)
+  neg_rho = math_ops.subtract(1., math_ops.square(rho))
+  
+  z = math_ops.square(n1_s1) + math_ops.square(n2_s2)
+  z -= 2. * math_ops.multiply(rho, math_ops.multiply(n1_s1, n2_s2))
+  denom = 2. * pi_const * math_ops.multiply(math_ops.multiply(s1, s2), math_ops.sqrt(neg_rho))
+  
+  normal = math_ops.div(math_ops.exp(math_ops.div(-z, 2 * neg_rho)), denom)
+
+  # implementing eq # 26 of http://arxiv.org/abs/1308.0850
+  epsilon = 1e-20
+  mixture_normal =math_ops.reduce_sum(math_ops.multiply(pi, normal), axis=1)
+  ops.add_to_collection('m_normal', mixture_normal)
+  return -math_ops.log(math_ops.maximum(mixture_normal, epsilon))

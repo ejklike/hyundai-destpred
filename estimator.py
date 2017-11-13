@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from data_preprocessor import DataPreprocessor
 from log import log
-from models import model_fn
+from models import model_fn, model_fn_mdn
 from custom_hook import EarlyStoppingHook
 from utils import (maybe_exist,
                    get_pkl_file_name,
@@ -118,7 +118,7 @@ def train_eval_save(car_id, proportion, dest_term,
       keep_checkpoint_max=1,
       log_step_count_steps=FLAGS.log_freq)
   nn = tf.estimator.Estimator(
-      model_fn=model_fn,
+      model_fn=model_fn if params['n_mixture'] is None else model_fn_mdn,
       params=params,
       config=config,
       model_dir=model_dir)
@@ -149,11 +149,13 @@ def train_eval_save(car_id, proportion, dest_term,
   # Score evaluation Part
   try: 
     ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
+    print('checkpoint_path:', ckpt_path)
     eval_results = [
         nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='trn'),
         nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val'),
         nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst')
     ]
+    print('eval finished.')
     global_step = eval_results[0]['global_step'] - 1
     trn_err, val_err, tst_err = [result['mean_distance'] for result in eval_results]
     trn_std, val_std, tst_std = [result['std_distance'] for result in eval_results]
@@ -166,30 +168,30 @@ def train_eval_save(car_id, proportion, dest_term,
 
     if FLAGS.train:
       record_results(RECORD_FNAME, model_id, 
-                     data_size=[len(path_trn), len(path_val), len(path_tst)],
-                     global_step=global_step, 
-                     mean_dist=[result['mean_distance'] for result in eval_results],
-                     std_dist=[result['std_distance'] for result in eval_results],
-                     min_dist=[result['min_distance'] for result in eval_results],
-                     max_dist=[result['max_distance'] for result in eval_results])
+                      data_size=[len(path_trn), len(path_val), len(path_tst)],
+                      global_step=global_step, 
+                      mean_dist=[result['mean_distance'] for result in eval_results],
+                      std_dist=[result['std_distance'] for result in eval_results],
+                      min_dist=[result['min_distance'] for result in eval_results],
+                      max_dist=[result['max_distance'] for result in eval_results])
       log.info('save the results to %s', RECORD_FNAME)
 
     # Viz Preds
     if n_save_viz > 0:
       input_dict_pred = dict((feature, arrays[:n_save_viz]) 
-                             for feature, arrays in input_dict_tst.items())
+                              for feature, arrays in input_dict_tst.items())
       pred_input_fn = tf.estimator.inputs.numpy_input_fn(x=input_dict_pred,
-                                                         num_epochs=1, 
-                                                         shuffle=False)
+                                                          num_epochs=1, 
+                                                          shuffle=False)
       pred_tst = nn.predict(input_fn=pred_input_fn)
       
       dest_viz = DestinationVizualizer(path_tst if params['use_path'] is True else None, 
-                                       meta_tst if params['use_meta'] is True else None, 
-                                       dest_tst, fpath_tst, dt_tst,
-                                       fpath_trn, model_id, save_dir='viz/dest')
+                                        meta_tst if params['use_meta'] is True else None, 
+                                        dest_tst, fpath_tst, dt_tst,
+                                        fpath_trn, model_id, save_dir='viz/dest')
       for i, pred in enumerate(pred_tst):
         dest_viz.plot_and_save(pred, i)
-    
+
     # Plot all (true, pred) destination in test set
     pred_input_fn = tf.estimator.inputs.numpy_input_fn(
         x=input_dict_tst,
@@ -200,8 +202,8 @@ def train_eval_save(car_id, proportion, dest_term,
                                               model_id=model_id)
     visualize_pred_error(dest_tst, pred_tst, fname)
 
-  except ValueError:
-    log.error('NO MODEL FOR %s' %model_id)
+  except ValueError as err:
+    log.error('%s. NO EVAL FOR %s', err, model_id)
 
 
 def main(_):
@@ -284,6 +286,7 @@ def main(_):
         # model type
         model_type=FLAGS.model_type,
         cluster_bw=cluster_bw,
+        n_mixture=FLAGS.n_mixture,
         # rnn params
         bi_direction=FLAGS.bi_direction,
         # dnn params
@@ -305,7 +308,9 @@ def main(_):
                               '_k%d' % k if FLAGS.model_type == 'dnn' else '']),
                           edim=path_embedding_dim),
                      'dense_{}x{}'.format(path_embedding_dim, n_hidden_layer),
-                     'cband_{}'.format(cluster_bw)]
+                     'cband_{}'.format(cluster_bw),
+                     'mdn_mix_{}'.format(
+                          model_params['n_mixture']) if FLAGS.n_mixture is not None else '']
     model_id = '__'.join(id_components)
 
     log.infov('=' * 30 + '{} / {} ({:.1f}%)'.format(
@@ -436,6 +441,10 @@ if __name__ == "__main__":
       type=int, 
       default=None)
 
+  parser.add_argument(
+      '--n_mixture', 
+      type=int, 
+      default=None)
 
   FLAGS, unparsed = parser.parse_known_args()
 
