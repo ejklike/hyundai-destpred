@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
 
-from custom_loss import mean_squared_distance_loss
+from custom_loss import mean_squared_distance_loss, neg_log_likelihood_loss
 from custom_metric import summary_statistics_metric
 
 
@@ -140,8 +140,7 @@ def model_fn(features, labels, mode, params):
   # Define loss, optimizer, and train_op
   labels = tf.cast(labels, dtype=tf.float32)
   loss = mean_squared_distance_loss(labels, predictions)
-  optimizer = tf.train.AdamOptimizer(
-      learning_rate=params["learning_rate"])
+  optimizer = tf.train.AdamOptimizer(learning_rate=params["learning_rate"])
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
 
@@ -149,6 +148,109 @@ def model_fn(features, labels, mode, params):
   loss_val = mean_squared_distance_loss(labels_val, predictions_val, scope='loss_val')
   
   _mean, _std, _min, _max = summary_statistics_metric(labels, predictions)
+
+  # evaluation metric
+  eval_metric_ops = dict(
+      mean_distance=_mean,
+      std_distance=_std,
+      min_distance=_min,
+      max_distance=_max,
+  )
+
+  # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
+  return tf.estimator.EstimatorSpec(
+      mode=mode,
+      loss=loss,
+      train_op=train_op,
+      eval_metric_ops=eval_metric_ops)
+
+
+def build_mdn_graph(features, params):
+  concat_target = []
+
+  # META embedding
+  if params['use_meta']:
+    metas = features['meta']
+    meta_embedding = embed_meta(metas, params)
+    concat_target.append(meta_embedding)
+
+  # PATH embedding  
+  if params['use_path']:
+    paths = features['path']
+    paths = tf.cast(paths, dtype=tf.float32)
+    path_embedding = embed_path(paths, params)
+    concat_target.append(path_embedding)
+
+  x = tf.concat(concat_target, axis=1, name='concat_embedded_input')
+
+  # before FINAL dense layer
+  for i_layer in range(1, params['n_hidden_layer'] + 1):
+    # n_hidden_node = x.get_shape().as_list()[1]
+    n_hidden_node = params['path_embedding_dim']
+    x = tf.layers.dense(x, n_hidden_node, activation=tf.nn.relu, name='dense_%d'%i_layer)
+
+  # param prediction
+  predictions = tf.layers.dense(x, 6 * params['n_mixture'], activation=None, name='generate_params')
+  pi, mu1, mu2, sig1, sig2, rho = tf.split(predictions, axis=1, num_or_size_splits=6, 
+                                           name='split_params')
+  pi = tf.nn.softmax(pi, name='pi_softmax')
+  sig1, sig2 = tf.exp(sig1, name='sig1_exp'), tf.exp(sig2, name='sig2_exp')
+  rho = tf.tanh(rho, name='rho_tanh')
+  return pi, mu1, mu2, sig1, sig2, rho
+
+
+def model_fn_mdn(features, labels, mode, params):
+  """MDN Model function for Estimator."""
+
+  # load validation data as constants
+  features_val = params['features_val']
+  labels_val = tf.constant(params['labels_val'], dtype=tf.float32)
+  for k, v in features_val.items():
+    if k == 'meta':
+      features_val[k] = tf.constant(v, dtype=tf.int32)
+    else:
+      features_val[k] = tf.constant(v, dtype=tf.float32)
+
+  # build graph for training or evaluation
+  with tf.variable_scope('graph') as scope:
+    # prediction for training data
+    pi, mu1, mu2, sig1, sig2, rho = build_mdn_graph(features, params)
+    scope.reuse_variables()
+    # prediction for validation data
+    pi_v, mu1_v, mu2_v, sig1_v, sig2_v, rho_v = build_mdn_graph(features_val, params)
+
+    # Predictions for evaluation
+    argmax_mask = tf.one_hot(tf.argmax(pi, axis=1), depth=params['n_mixture'])
+    
+    mu1_max = tf.reduce_sum(tf.multiply(mu1, argmax_mask), axis=1, keep_dims=True)
+    mu2_max = tf.reduce_sum(tf.multiply(mu2, argmax_mask), axis=1, keep_dims=True)
+    predictions = tf.concat([mu1_max, mu2_max], axis=1)
+
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    print('>>> Trainable Variables: ')
+    for v in tf.trainable_variables():
+      print(v.name + '; ' + str(v.shape))
+
+  # Provide an estimator spec for `ModeKeys.PREDICT`.
+  if mode == tf.estimator.ModeKeys.PREDICT:
+    return tf.estimator.EstimatorSpec(
+        mode=mode,
+        predictions=predictions)
+
+  # Define loss, optimizer, and train_op
+  labels = tf.cast(labels, dtype=tf.float32)
+  loss = neg_log_likelihood_loss(labels, pi, mu1, mu2, sig1, sig2, rho) ###
+  optimizer = tf.train.AdamOptimizer(learning_rate=params["learning_rate"])
+  train_op = optimizer.minimize(loss=loss, 
+                                global_step=tf.train.get_global_step())
+
+  # LOSS for validation
+  loss_val = neg_log_likelihood_loss(labels_val, pi_v, mu1_v, mu2_v, sig1_v, sig2_v, rho_v, 
+                                     scope='loss_val') ###
+
+  _mean, _std, _min, _max = summary_statistics_metric(labels, predictions)
+  # print(predictions)
+  tf.add_to_collection('eval', predictions)
 
   # evaluation metric
   eval_metric_ops = dict(
