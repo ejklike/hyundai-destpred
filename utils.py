@@ -27,7 +27,7 @@ def convert_time_for_fname(date_time):
     return date_time.strftime('%Y%m%d_%H%M%S')
 
 
-def dist(x, y, to_km=False):
+def dist(x, y, to_km=False, std=False):
     rad_to_km = np.array([111.0, 88.8])
     
     x, y = np.array(x).reshape(-1, 2), np.array(y).reshape(-1, 2)
@@ -35,7 +35,10 @@ def dist(x, y, to_km=False):
     if to_km is True:
         delta_square *= rad_to_km**2
     distances = np.sqrt(np.sum(delta_square, axis=1))
-    return np.sum(distances)
+    if std is False:
+        return np.mean(distances)
+    else:
+        return np.mean(distances), np.std(distances)
 
 
 def get_pkl_file_name(car_id, proportion, dest_term, train=True):
@@ -302,39 +305,45 @@ class DestinationVizualizer(object):
             )
             point_data_list += [(meta_str, [-100, -100], 'white', '')]
 
-        fig, ax = plt.subplots()
-        
-        # set xlim and ylim of viz
-        all_points_this_path = np.concatenate([full_path, y_pred.reshape(1, -1)], axis=0)
-        xmin, ymin = np.min(all_points_this_path, axis=0)
-        xmax, ymax = np.max(all_points_this_path, axis=0)
-        dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
-        ax.set_xlim([ymin - dy, ymax + dy])
-        ax.set_ylim([xmin - dx, xmax + dx])
 
-        # scatter points and plot path
-        ax.scatter(self.training_path_points[:, 1], self.training_path_points[:, 0], 
-                   c='greenyellow', marker='.', s=10, alpha=0.3)
-        for label, path, color, marker in path_data_list:
-            ax.plot(path[:, 1], path[:, 0], c=color, marker=marker, label=label)
-        for label, point, color, marker in point_data_list:
-            ax.scatter(point[1], point[0], 
-                    c=color, marker=marker, label=label, s=100)#, linewidths=10)
-        ax.legend(); ax.grid(True)
+def visualize_pred_error(y_true, y_pred, fname=None):
+    
+    if fname is None:
+        raise ValueError('You must enter the fname!')
 
-        # SET TITLES
-        start_dt = convert_time_for_fname(self.dt_tst[i])
-        title = ('{model_id}'
-                 '\nSTART_DT={start_dt}'
-                 '\n(dist_rad={dist_rad:.3f}, dist_km={dist_km:.2f})')
-        title = title.format(model_id=self.model_id,
-                             start_dt=start_dt,
-                             dist_rad=dist(y_true, y_pred, to_km=False),
-                             dist_km=dist(y_true, y_pred, to_km=True))
-        ax_title = ax.set_title(title, fontsize=12)
-        fig.subplots_adjust(top=0.8)
-        plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
-        
-        # SAVE
-        fname = os.path.join(self.save_dir, start_dt + '__' + self.model_id + '.png')
-        plt.savefig(fname); plt.close()
+    y_pred = [x for x in y_pred]
+    all_points = np.concatenate([y_true, y_pred], axis=0)
+
+    fig, ax = plt.subplots()
+    xmin, ymin = np.min(all_points, axis=0)
+    xmax, ymax = np.max(all_points, axis=0)
+    dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
+    ax.set_xlim([ymin - dy, ymax + dy])
+    ax.set_ylim([xmin - dx, xmax + dx])
+    
+    ax.scatter([x[1] for x in y_true], [x[0] for x in y_true], 
+                c='crimson', marker='.', label='true_destination', alpha=0.3, s=50, linewidths=3)
+    ax.scatter([x[1] for x in y_pred], [x[0] for x in y_pred], 
+               c='mediumblue', marker='.', label='pred_destination', alpha=0.3, s=50, linewidths=3)
+
+    for y1, y2 in zip(y_true, y_pred):
+        plt.plot((y1[1], y2[1]), (y1[0], y2[0]), ':', c='xkcd:midnight blue', alpha=0.3)
+    ax.legend()
+    ax.grid(True)
+
+    # SET TITLE and SAVE
+    fname_without_extension = fname[:-4]
+    *save_dir, fname_without_dir = fname_without_extension.split('/')
+    maybe_exist('/'.join(save_dir))
+    car, dest, *exp_setting, _ = fname_without_dir.split('__')
+    title = '{car}, {dest}\nSETTING: {setting}'.format(
+        car=car.upper(),
+        dest='FINAL DEST' if dest[-1] == '0' else 'AFTER {} MIN.'.format(dest[-1]),
+        setting='__'.join(exp_setting))
+    title += '\n(dist_mean: %.3f (%.3f) rad, %.2f (%.2f) km '%(*dist(y_true, y_pred, to_km=False, std=True), *dist(y_true, y_pred, to_km=True, std=True))
+    ax_title = ax.set_title(title)
+    fig.subplots_adjust(top=0.8)
+    plt.xlabel('longitude (translated)')
+    plt.ylabel('latitude (translated)')
+    plt.savefig(fname)
+    plt.close()

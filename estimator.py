@@ -15,6 +15,7 @@ from utils import (maybe_exist,
                    load_data,
                    record_results,
                    visualize_cluster,
+                   visualize_pred_error,
                    DestinationVizualizer)
 
 # Data dir
@@ -182,14 +183,23 @@ def train_eval_save(car_id, proportion, dest_term,
                                                          shuffle=False)
       pred_tst = nn.predict(input_fn=pred_input_fn)
       
-      print(path_tst.shape)
       dest_viz = DestinationVizualizer(path_tst if params['use_path'] is True else None, 
                                        meta_tst if params['use_meta'] is True else None, 
                                        dest_tst, fpath_tst, dt_tst,
                                        fpath_trn, model_id, save_dir='viz/dest')
       for i, pred in enumerate(pred_tst):
         dest_viz.plot_and_save(pred, i)
-  
+    
+    # Plot all (true, pred) destination in test set
+    pred_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x=input_dict_tst,
+        num_epochs=1,
+        shuffle=False)
+    pred_tst = nn.predict(input_fn=pred_input_fn)
+    fname = '{viz_dir}/{model_id}.png'.format(viz_dir=VIZ_DIR, 
+                                              model_id=model_id)
+    visualize_pred_error(dest_tst, pred_tst, fname)
+
   except ValueError:
     log.error('NO MODEL FOR %s' %model_id)
 
@@ -214,8 +224,7 @@ def main(_):
   # 81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 
   # ] # all
   car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
-    82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100
-  ]
+    82, 83, 84, 85, 87, 88, 89, 90, 91, 92]
   # car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
   #   'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
   #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
@@ -228,16 +237,16 @@ def main(_):
   # ] # last half
 
   # input path specification
-  short_term_dest_list = [0, 5] if FLAGS.dest_type is None else [FLAGS.dest_type]
-  proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8] if FLAGS.proportion is None else [FLAGS.proportion]
+  short_term_dest_list = [5] if FLAGS.dest_type is None else [FLAGS.dest_type]
+  proportion_list = [0.2] if FLAGS.proportion is None else [FLAGS.proportion]
 
   # Used for loading data and building graph
-  use_meta_list = [True, False]
+  use_meta_list = [True]
   k_list = [5] if FLAGS.model_type == 'dnn' else [0]
-  path_embedding_dim_list = [FLAGS.path_dim] if FLAGS.path_dim is not None else [10, 50, 100]
+  path_embedding_dim_list = [FLAGS.path_dim] if FLAGS.path_dim is not None else [50]
 
-  n_hidden_layer_list = [FLAGS.n_dense] if FLAGS.n_dense is not None else [1, 2, 3]
-  cluster_bw_list = [FLAGS.cband] if FLAGS.cband is not None else [0, 0.01, 0.1, 0.3]
+  n_hidden_layer_list = [FLAGS.n_dense] if FLAGS.n_dense is not None else [2]
+  cluster_bw_list = [FLAGS.cband] if FLAGS.cband is not None else [0]
 
   # PARAM GRIDS
   param_grid_targets = [car_id_list,
