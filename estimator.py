@@ -11,13 +11,12 @@ from log import log
 from models import model_fn
 from custom_hook import EarlyStoppingHook
 from utils import (maybe_exist,
-                   convert_time_for_fname,
                    get_pkl_file_name,
                    load_data,
                    record_results,
                    visualize_cluster,
-                   visualize_predicted_destination,
-                   visualize_pred_error)
+                   visualize_pred_error,
+                   DestinationVizualizer)
 
 # Data dir
 DATA_DIR = './data_pkl'
@@ -147,52 +146,51 @@ def train_eval_save(car_id, proportion, dest_term,
              steps=FLAGS.steps, 
              hooks=[early_stopping_hook])
 
-  try:
-    # Score evaluation
+  # Score evaluation Part
+  try: 
     ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
-    global_step = nn.evaluate(input_fn=eval_input_fn_trn, 
-                              checkpoint_path=ckpt_path, name='step')['global_step']
-    print('evaluating @ {}, restoring from {}'.format(global_step-1, ckpt_path))
-
-    trn_err = nn.evaluate(input_fn=eval_input_fn_trn, 
-                          checkpoint_path=ckpt_path, name='trn')['mean_distance']
-    val_err = nn.evaluate(input_fn=eval_input_fn_val, 
-                          checkpoint_path=ckpt_path, name='val')['mean_distance']
-    tst_err = nn.evaluate(input_fn=eval_input_fn_tst, 
-                          checkpoint_path=ckpt_path, name='tst')['mean_distance']
+    eval_results = [
+        nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='trn'),
+        nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val'),
+        nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst')
+    ]
+    global_step = eval_results[0]['global_step'] - 1
+    trn_err, val_err, tst_err = [result['mean_distance'] for result in eval_results]
+    trn_std, val_std, tst_std = [result['std_distance'] for result in eval_results]
+    print([result['std_distance'] for result in eval_results])
+    print([result['min_distance'] for result in eval_results])
+    print([result['max_distance'] for result in eval_results])
 
     log.warning(model_id)
     log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
 
     if FLAGS.train:
       record_results(RECORD_FNAME, model_id, 
-                     len(path_trn), len(path_val), len(path_tst),
-                     global_step, trn_err, val_err, tst_err)
+                     data_size=[len(path_trn), len(path_val), len(path_tst)],
+                     global_step=global_step, 
+                     mean_dist=[result['mean_distance'] for result in eval_results],
+                     std_dist=[result['std_distance'] for result in eval_results],
+                     min_dist=[result['min_distance'] for result in eval_results],
+                     max_dist=[result['max_distance'] for result in eval_results])
+      log.info('save the results to %s', RECORD_FNAME)
 
     # Viz Preds
     if n_save_viz > 0:
-      maybe_exist(VIZ_DIR)
-
-      input_dict_pred = dict((key, array[:n_save_viz]) 
-                          for key, array in input_dict_tst.items())
-      pred_input_fn = tf.estimator.inputs.numpy_input_fn(
-          x=input_dict_pred,
-          num_epochs=1, 
-          shuffle=False)
-
+      input_dict_pred = dict((feature, arrays[:n_save_viz]) 
+                             for feature, arrays in input_dict_tst.items())
+      pred_input_fn = tf.estimator.inputs.numpy_input_fn(x=input_dict_pred,
+                                                         num_epochs=1, 
+                                                         shuffle=False)
       pred_tst = nn.predict(input_fn=pred_input_fn)
+      
+      dest_viz = DestinationVizualizer(path_tst if params['use_path'] is True else None, 
+                                       meta_tst if params['use_meta'] is True else None, 
+                                       dest_tst, fpath_tst, dt_tst,
+                                       fpath_trn, model_id, save_dir='viz/dest')
       for i, pred in enumerate(pred_tst):
-        fname = '{viz_dir}/{start_dt}__{model_id}.png'.format(
-                viz_dir=VIZ_DIR, 
-                model_id=model_id, 
-                start_dt=convert_time_for_fname(dt_tst[i]))
-        visualize_predicted_destination(
-            fpath_trn,
-            fpath_tst[i], 
-            meta_tst[i],
-            path_tst[i] if proportion > 0 else None, 
-            dest_tst[i], pred, fname=fname)
+        dest_viz.plot_and_save(pred, i)
     
+    # Plot all (true, pred) destination in test set
     pred_input_fn = tf.estimator.inputs.numpy_input_fn(
         x=input_dict_tst,
         num_epochs=1,
