@@ -77,9 +77,6 @@ def mean(values, metrics_collections=None,
 
     return mean_t, update_op
 
-  
-  return 
-
 
 def mean_distance_metric(labels, predictions,
                          metrics_collections=None,

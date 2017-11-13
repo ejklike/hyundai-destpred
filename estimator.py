@@ -13,8 +13,8 @@ from custom_hook import EarlyStoppingHook
 from utils import (maybe_exist,
                    convert_time_for_fname,
                    get_pkl_file_name,
-                   load_data,
-                   load_multiple_data,
+                   load_tst_data,
+                   load_trn_val_data,
                    record_results,
                    visualize_cluster,
                    visualize_predicted_destination)
@@ -41,35 +41,33 @@ def train_eval_save(car_id_list, proportion, dest_term,
     fname_trn_list = [os.path.join(DATA_DIR, get_pkl_file_name(car_id, proportion, dest_term, train=True))
                       for car_id in car_id_list]
 
-    path_trn, meta_trn, dest_trn, _, fpath_trn = load_multiple_data(fname_trn_list, k=params['k'])
-
-    # split train set into train/validation sets
-    num_trn = int(len(path_trn) * (1 - FLAGS.validation_size))
-    path_trn, path_val = path_trn[:num_trn], path_trn[num_trn:]
-    meta_trn, meta_val = meta_trn[:num_trn], meta_trn[num_trn:]
-    dest_trn, dest_val = dest_trn[:num_trn], dest_trn[num_trn:]
+    path_dict, meta_dict, dest_dict, _, fpath_dict, car_ids_dict, vin2idx = load_trn_val_data(fname_trn_list, FLAGS.validation_size, k=params['k'])
 
     # data for feeding to the graph
     input_dict_trn, input_dict_val = {}, {}
     features_val = {}
 
     if params['use_meta']:
-        features_val['meta'] = meta_val
-    input_dict_trn['meta'] = meta_trn
-    input_dict_val['meta'] = meta_val
+        features_val['meta'] = meta_dict['val']
+    input_dict_trn['meta'] = meta_dict['trn']
+    input_dict_val['meta'] = meta_dict['val']
     if params['use_path']:
-        features_val['path'] = path_val
-    input_dict_trn['path'] = path_trn
-    input_dict_val['path'] = path_val
+        features_val['path'] = path_dict['val']
+    input_dict_trn['path'] = path_dict['trn']
+    input_dict_val['path'] = path_dict['val']
+    input_dict_trn['car_id'] = car_ids_dict['trn']
+    input_dict_val['car_id'] = car_ids_dict['val']
+    features_val['car_id'] = car_ids_dict['val']
     params['features_val'] = features_val
-    params['labels_val'] = dest_val
+    params['labels_val'] = dest_dict['val']
+    params['n_car'] = len(vin2idx)
     # log.infov('data_size:  = ({}, {}, {})'
     #           .format(len(path_trn), len(path_val), len(path_tst)))
-    print('data shape of (trn, val): ', path_trn.shape, path_val.shape)
+    print('data shape of (trn, val): ', path_dict['trn'].shape, path_dict['val'].shape)
 
     # clustering destinations
     if params['cluster_bw'] > 0:
-        cluster_centers = MeanShift(bandwidth=params['cluster_bw']).fit(dest_trn).cluster_centers_
+        cluster_centers = MeanShift(bandwidth=params['cluster_bw']).fit(dest_dict['trn']).cluster_centers_
         n_cluster = len(cluster_centers)
         log.info('#cluster of destination = %d', n_cluster)
         params['cluster_centers'] = cluster_centers
@@ -78,12 +76,12 @@ def train_eval_save(car_id_list, proportion, dest_term,
     # input functions for evaluation
     eval_input_fn_trn = tf.estimator.inputs.numpy_input_fn(
         x=input_dict_trn,
-        y=dest_trn,
+        y=dest_dict['trn'],
         num_epochs=1,
         shuffle=False)
     eval_input_fn_val = tf.estimator.inputs.numpy_input_fn(
         x=input_dict_val,
-        y=dest_val,
+        y=dest_dict['val'],
         num_epochs=1,
         shuffle=False)
 
@@ -115,7 +113,7 @@ def train_eval_save(car_id_list, proportion, dest_term,
     # Generate infinitely looping batch
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
         x=input_dict_trn,
-        y=dest_trn,
+        y=dest_dict['trn'],
         batch_size=FLAGS.batch_size,
         num_epochs=None,
         shuffle=True)
@@ -144,7 +142,7 @@ def train_eval_save(car_id_list, proportion, dest_term,
                           for car_id in car_id_list]
 
         for car_id, fname_tst in zip(car_id_list, fname_tst_list):
-            path_tst, meta_tst, dest_tst, dt_tst, fpath_tst = load_data(fname_tst, k=params['k'])
+            path_tst, meta_tst, dest_tst, dt_tst, fpath_tst, car_id_tst = load_tst_data(fname_tst, vin2idx, k=params['k'])
             #   print([fpath for fpath in fpath_tst])
             input_dict_tst = {}
 
@@ -152,7 +150,7 @@ def train_eval_save(car_id_list, proportion, dest_term,
                 input_dict_tst['meta'] = meta_tst
             if params['use_path']:
                 input_dict_tst['path'] = path_tst
-
+            input_dict_tst['car_id'] = car_id_tst
             print('data shape of tst: ', path_tst.shape)
 
             # visualize cluster
@@ -160,7 +158,7 @@ def train_eval_save(car_id_list, proportion, dest_term,
                 cluster_fname = '{}/cluster/car_{}__dest_{}__cband_{}.png'.format(
                     VIZ_DIR, car_id, dest_term, params['cluster_bw'])
                 if FLAGS.model_type == 'dnn':
-                    visualize_cluster(dest_trn, dest_val, dest_tst, cluster_centers,
+                    visualize_cluster(dest_dict['trn'], dest_dict['val'], dest_tst, cluster_centers,
                                       bandwidth=params['cluster_bw'], n_cluster=n_cluster,
                                       fname=cluster_fname)
 
@@ -180,7 +178,7 @@ def train_eval_save(car_id_list, proportion, dest_term,
 
             if FLAGS.train:
                 record_results(RECORD_FNAME, new_model_id,
-                               len(path_trn), len(path_val), len(path_tst),
+                               len(path_dict['trn']), len(path_dict['val']), len(path_tst),
                                global_step, trn_err, val_err, tst_err)
 
             # Viz Preds
@@ -196,12 +194,12 @@ def train_eval_save(car_id_list, proportion, dest_term,
 
                 pred_tst = nn.predict(input_fn=pred_input_fn)
                 for i, pred in enumerate(pred_tst):
-                    fname = '{viz_dir}/{start_dt}__{model_id}.png'.format(
+                    fname = '{viz_dir}/{model_id}__{start_dt}.png'.format(
                         viz_dir=VIZ_DIR,
                         model_id=new_model_id,
                         start_dt=convert_time_for_fname(dt_tst[i]))
                     visualize_predicted_destination(
-                        fpath_trn,
+                        fpath_dict['trn'],
                         fpath_tst[i],
                         meta_tst[i],
                         path_tst[i] if proportion > 0 else None,

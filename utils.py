@@ -47,70 +47,7 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
         dest_type=dest_term)
     return file_name
 
-
-def load_data(fname, k=0):
-    """
-    input data:
-      paths: list of path nparrays
-      metas: list of meta lists
-      dests: list of dest nparrays
-    output data:
-      paths: nparray of shape [data_size, ***]
-      metas: nparray of shape [data_size, meta_size]
-      dests: nparray of shape [data_size, 2]
-    """
-    data = pickle.load(open(fname, 'rb'))
-    paths, metas, dests = data['path'], data['meta'], data['dest']
-    full_paths, dts = data['full_path'], data['dt']
-
-    if k == 0: # RNN or NO PATH
-        def resize_by_padding(path, target_length):
-            """add zero padding prior to the given path"""
-            path_length = path.shape[0]
-            pad_width = ((target_length - path_length, 0), (0, 0))
-            return np.lib.pad(path, pad_width, 'constant', constant_values=0)
-    
-        max_length = max(p.shape[0] for p in paths)
-        paths = [resize_by_padding(p, max_length) for p in paths]
-        paths = np.stack(paths, axis=0)
-
-    else: # DNN
-        def resize_to_2k(path, k):
-            """remove middle portion of the given path (np array)"""
-            # When the prefix of the trajectory contains less than
-            # 2k points, the first and last k points overlap
-            # (De Brébisson, Alexandre, et al., 2015)
-            if len(path) < k: 
-                front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
-            else:
-                front_k, back_k = path[:k], path[-k:]
-            return np.concatenate([front_k, back_k], axis=0)
-
-        paths = [resize_to_2k(p, k) for p in paths]
-        paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
-    
-    metas, dests = np.array(metas), np.array(dests)
-    
-    return paths, metas, dests, dts, full_paths
-
-def load_multiple_data(fname_list, k=0):
-    
-    paths_list = []
-    metas_list = []
-    dests_list = []
-    dts_list = []
-    full_paths_list = []
-    
-    for fname in fname_list:
-        data = pickle.load(open(fname, 'rb'))
-        paths, metas, dests = data['path'], data['meta'], data['dest']
-        full_paths, dts = data['full_path'], data['dt']
-        paths_list.extend(paths)
-        metas_list.extend(metas)
-        dests_list.extend(dests)
-        full_paths_list.extend(full_paths)
-        dts_list.extend(dts)
-
+def data_to_input(paths, metas, dests, k=0):
     if k == 0:  # RNN or NO PATH
         def resize_by_padding(path, target_length):
             """add zero padding prior to the given path"""
@@ -118,8 +55,8 @@ def load_multiple_data(fname_list, k=0):
             pad_width = ((target_length - path_length, 0), (0, 0))
             return np.lib.pad(path, pad_width, 'constant', constant_values=0)
 
-        max_length = max(p.shape[0] for p in paths_list)
-        paths = [resize_by_padding(p, max_length) for p in paths_list]
+        max_length = max(p.shape[0] for p in paths)
+        paths = [resize_by_padding(p, max_length) for p in paths]
         paths = np.stack(paths, axis=0)
 
     else:  # DNN
@@ -134,12 +71,82 @@ def load_multiple_data(fname_list, k=0):
                 front_k, back_k = path[:k], path[-k:]
             return np.concatenate([front_k, back_k], axis=0)
 
-        paths = [resize_to_2k(p, k) for p in paths_list]
+        paths = [resize_to_2k(p, k) for p in paths]
         paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
 
-    metas, dests = np.array(metas_list), np.array(dests_list)
+    metas, dests = np.array(metas), np.array(dests)
 
-    return paths, metas, dests, dts_list, full_paths_list
+    return paths, metas, dests
+
+
+def load_tst_data(fname, vin2idx, k=0):
+    """
+    input data:
+      paths: list of path nparrays
+      metas: list of meta lists
+      dests: list of dest nparrays
+    output data:
+      paths: nparray of shape [data_size, ***]
+      metas: nparray of shape [data_size, meta_size]
+      dests: nparray of shape [data_size, 2]
+    """
+    data = pickle.load(open(fname, 'rb'))
+    paths, metas, dests = data['path'], data['meta'], data['dest']
+    paths, metas, dests = data_to_input(paths, metas, dests, k=k)
+
+    dts, full_paths = data['dt'], data['full_path']
+    car_id = "_".join(fname.split('_')[2:-4])
+    car_id_list = np.array([vin2idx[car_id]] * len(paths))
+
+    return paths, metas, dests, dts, full_paths, car_id_list
+
+
+def load_trn_val_data(fname_list, validation_size, k=0):
+
+    paths_list_trn, metas_list_trn, dests_list_trn, dts_list_trn, full_paths_list_trn, car_ids_list_trn = [], [], [], [], [], []
+    paths_list_val, metas_list_val, dests_list_val, dts_list_val, full_paths_list_val, car_ids_list_val = [], [], [], [], [], []
+
+    car_id_set = set()
+    
+    for fname in fname_list:
+        data = pickle.load(open(fname, 'rb'))
+
+        paths, metas, dests = data['path'], data['meta'], data['dest']
+        dts, full_paths =  data['dt'], data['full_path']
+        car_id = "_".join(fname.split('_')[2:-4])
+        car_id_set.add(car_id)
+
+        # split train set into train/validation sets
+        n_trn = int((1 - validation_size) * len(paths))
+
+        paths_list_trn.extend(paths[:n_trn])
+        metas_list_trn.extend(metas[:n_trn])
+        dests_list_trn.extend(dests[:n_trn])
+        dts_list_trn.extend(dts[:n_trn])
+        full_paths_list_trn.extend(full_paths[:n_trn])
+        car_ids_list_trn.extend([car_id]*n_trn)
+
+        paths_list_val.extend(paths[n_trn:])
+        metas_list_val.extend(metas[n_trn:])
+        dests_list_val.extend(dests[n_trn:])
+        dts_list_val.extend(dts[n_trn:])
+        full_paths_list_val.extend(full_paths[n_trn:])
+        car_ids_list_val.extend([car_id] * (len(paths) - n_trn))
+
+    paths_trn, metas_trn, dests_trn = data_to_input(paths_list_trn, metas_list_trn, dests_list_trn, k=k)
+    paths_val, metas_val, dests_val = data_to_input(paths_list_val, metas_list_val, dests_list_val, k=k)
+
+    vin2idx = {val: int(i) for i, val in enumerate(car_id_set)}
+
+    paths_dict = {'trn': paths_trn, 'val': paths_val}
+    metas_dict = {'trn': metas_trn, 'val': metas_val}
+    dests_dict = {'trn': dests_trn, 'val': dests_val}
+    dts_dict = {'trn': np.array(dts_list_trn), 'val': np.array(dts_list_val)}
+    full_paths_dict = {'trn': np.array(full_paths_list_trn), 'val': np.array(full_paths_list_val)}
+    car_ids_dict = {'trn': np.array([vin2idx[car_id] for car_id in car_ids_list_trn]),
+                    'val': np.array([vin2idx[car_id] for car_id in car_ids_list_val])}
+
+    return paths_dict, metas_dict, dests_dict, dts_dict, full_paths_dict, car_ids_dict, vin2idx
 
 
 def record_results(fname, model_id, trn_size, val_size, tst_size,
