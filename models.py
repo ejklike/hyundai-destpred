@@ -141,13 +141,16 @@ def model_fn(features, labels, mode, params):
   labels = tf.cast(labels, dtype=tf.float32)
   loss = mean_squared_distance_loss(labels, predictions)
   optimizer = tf.train.AdamOptimizer(learning_rate=params["learning_rate"])
+  # optimizer = tf.train.RMSPropOptimizer(learning_rate=params["learning_rate"], momentum=0.9)
+  # optimizer = tf.train.MomentumOptimizer(learning_rate=params["learning_rate"], 
+                                        #  momentum=0.95)
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
 
   # LOSS for validation
   loss_val = mean_squared_distance_loss(labels_val, predictions_val, scope='loss_val')
   
-  _mean, _std, _min, _max = summary_statistics_metric(labels, predictions)
+  _mean, _std, _min, _max, _argmin, _argmax = summary_statistics_metric(labels, predictions)
 
   # evaluation metric
   eval_metric_ops = dict(
@@ -155,6 +158,8 @@ def model_fn(features, labels, mode, params):
       std_distance=_std,
       min_distance=_min,
       max_distance=_max,
+      argmin_index=_argmin,
+      argmax_index=_argmax,
   )
 
   # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
@@ -239,18 +244,16 @@ def model_fn_mdn(features, labels, mode, params):
 
   # Define loss, optimizer, and train_op
   labels = tf.cast(labels, dtype=tf.float32)
-  loss = neg_log_likelihood_loss(labels, pi, mu1, mu2, sig1, sig2, rho) ###
+  loss = neg_log_likelihood_loss(labels, pi, mu1, mu2, sig1, sig2, rho)
   optimizer = tf.train.AdamOptimizer(learning_rate=params["learning_rate"])
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
 
   # LOSS for validation
   loss_val = neg_log_likelihood_loss(labels_val, pi_v, mu1_v, mu2_v, sig1_v, sig2_v, rho_v, 
-                                     scope='loss_val') ###
+                                     scope='loss_val')
 
   _mean, _std, _min, _max = summary_statistics_metric(labels, predictions)
-  # print(predictions)
-  tf.add_to_collection('eval', predictions)
 
   # evaluation metric
   eval_metric_ops = dict(
@@ -258,6 +261,8 @@ def model_fn_mdn(features, labels, mode, params):
       std_distance=_std,
       min_distance=_min,
       max_distance=_max,
+      argmin_index=_argmin,
+      argmax_index=_argmax,
   )
 
   # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
