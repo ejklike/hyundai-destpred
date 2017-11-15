@@ -141,9 +141,6 @@ def model_fn(features, labels, mode, params):
   labels = tf.cast(labels, dtype=tf.float32)
   loss = mean_squared_distance_loss(labels, predictions)
   optimizer = tf.train.AdamOptimizer(learning_rate=params["learning_rate"])
-  # optimizer = tf.train.RMSPropOptimizer(learning_rate=params["learning_rate"], momentum=0.9)
-  # optimizer = tf.train.MomentumOptimizer(learning_rate=params["learning_rate"], 
-                                        #  momentum=0.95)
   train_op = optimizer.minimize(loss=loss, 
                                 global_step=tf.train.get_global_step())
 
