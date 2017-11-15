@@ -152,6 +152,48 @@ def _max(values, metrics_collections=None,
     return max_t, update_op
 
 
+def _argmin(values, metrics_collections=None,
+         updates_collections=None, name=None):
+  """
+  returns a argmin index and a update_op
+  """
+  with variable_scope.variable_scope(name, 'argmin', (values, )):
+    values = math_ops.to_float(values)
+
+    argmin_local = _create_local('argmin', shape=[], dtype=dtypes.int64)
+    update_op = state_ops.assign_add(argmin_local, math_ops.argmin(values))
+    argmin_t = array_ops.identity(argmin_local)
+
+    if metrics_collections:
+      ops.add_to_collections(metrics_collections, argmin_t)
+
+    if updates_collections:
+      ops.add_to_collections(updates_collections, update_op)
+
+    return argmin_t, update_op
+
+
+def _argmax(values, metrics_collections=None,
+         updates_collections=None, name=None):
+  """
+  returns a argmax index and a update_op
+  """
+  with variable_scope.variable_scope(name, 'argmax', (values, )):
+    values = math_ops.to_float(values)
+
+    argmax_local = _create_local('argmax', shape=[], dtype=dtypes.int64)
+    update_op = state_ops.assign_add(argmax_local, math_ops.argmax(values))
+    argmax_t = array_ops.identity(argmax_local)
+
+    if metrics_collections:
+      ops.add_to_collections(metrics_collections, argmax_t)
+
+    if updates_collections:
+      ops.add_to_collections(updates_collections, update_op)
+
+    return argmax_t, update_op
+
+
 def mean_distance_metric(labels, predictions,
                          metrics_collections=None,
                          updates_collections=None,
@@ -218,5 +260,7 @@ def summary_statistics_metric(labels, predictions,
       _mean(distances, metrics_collections, updates_collections, name or 'mean_distance'),
       _std(distances, metrics_collections, updates_collections, name or 'std_distance'),
       _min(distances, metrics_collections, updates_collections, name or 'min_distance'),
-      _max(distances, metrics_collections, updates_collections, name or 'max_distance')
+      _max(distances, metrics_collections, updates_collections, name or 'max_distance'),
+      _argmin(distances, metrics_collections, updates_collections, name or 'argmin_index'),
+      _argmax(distances, metrics_collections, updates_collections, name or 'argmax_index'),
   )
