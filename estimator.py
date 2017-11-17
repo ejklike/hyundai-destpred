@@ -80,9 +80,10 @@ def train_eval_save(car_id, proportion, dest_term,
     log.info('#cluster of destination = %d', n_cluster)
     params['cluster_centers'] = cluster_centers
     params['n_clusters'] = n_cluster
-    cluster_fname = '{}/cluster/car_{}__dest_{}__cband_{}.png'.format(
-          VIZ_DIR, car_id, dest_term, params['cluster_bw'])
+
     if FLAGS.model_type == 'dnn':
+      cluster_fname = '{}/cluster/car_{}__dest_{}__cband_{}.png'.format(
+          VIZ_DIR, car_id, dest_term, params['cluster_bw'])
       visualize_cluster(dest_trn, dest_val, dest_tst, cluster_centers, 
                         bandwidth=params['cluster_bw'], n_cluster=n_cluster,
                         fname=cluster_fname)
@@ -123,9 +124,13 @@ def train_eval_save(car_id, proportion, dest_term,
       config=config,
       model_dir=model_dir)
 
+  # check previous ckpt
+  ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
+  print('prev checkpoint_path:', ckpt_path)
+
   # Train Part
-  if FLAGS.train:
-    
+  if FLAGS.train or not ckpt_path:
+
     # Remove prev model or not
     if FLAGS.restart and tf.gfile.Exists(model_dir):
       tf.gfile.DeleteRecursively(model_dir)
@@ -146,64 +151,59 @@ def train_eval_save(car_id, proportion, dest_term,
              steps=FLAGS.steps, 
              hooks=[early_stopping_hook])
 
+  # check new ckpt
+  ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
+  print('new checkpoint_path:', ckpt_path)
+
   # Score evaluation Part
-  try: 
-    ckpt_path = tf.train.latest_checkpoint(model_dir, latest_filename=None)
-    print('checkpoint_path:', ckpt_path)
-    eval_results = [
-        nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='trn'),
-        nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val'),
-        nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst')
-    ]
-    print('eval finished.')
-    global_step = eval_results[0]['global_step'] - 1
-    trn_err, val_err, tst_err = [result['mean_distance'] for result in eval_results]
-    trn_std, val_std, tst_std = [result['std_distance'] for result in eval_results]
-    print([result['std_distance'] for result in eval_results])
-    print([result['min_distance'] for result in eval_results])
-    print([result['max_distance'] for result in eval_results])
+  eval_results = [
+      nn.evaluate(input_fn=eval_input_fn_trn, checkpoint_path=ckpt_path, name='trn'),
+      nn.evaluate(input_fn=eval_input_fn_val, checkpoint_path=ckpt_path, name='val'),
+      nn.evaluate(input_fn=eval_input_fn_tst, checkpoint_path=ckpt_path, name='tst')
+  ]
+  print('eval finished.')
+  global_step = eval_results[0]['global_step'] - 1
+  trn_err, val_err, tst_err = [result['mean_distance'] for result in eval_results]
+  trn_std, val_std, tst_std = [result['std_distance'] for result in eval_results]
+  print('mean(error)', [result['mean_distance'] for result in eval_results])
+  print('std (error)', [result['std_distance'] for result in eval_results])
+  print('min (error)', [result['min_distance'] for result in eval_results])
+  print('max (error)', [result['max_distance'] for result in eval_results])
 
-    log.warning(model_id)
-    log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
+  log.warning(model_id)
+  log.warning("Loss {:.3f}, {:.3f}, {:.3f}".format(trn_err, val_err, tst_err))
 
-    if FLAGS.train:
-      record_results(RECORD_FNAME, model_id, 
-                      data_size=[len(path_trn), len(path_val), len(path_tst)],
-                      global_step=global_step, 
-                      mean_dist=[result['mean_distance'] for result in eval_results],
-                      std_dist=[result['std_distance'] for result in eval_results],
-                      min_dist=[result['min_distance'] for result in eval_results],
-                      max_dist=[result['max_distance'] for result in eval_results])
-      log.info('save the results to %s', RECORD_FNAME)
+  if FLAGS.record:
+    record_results(RECORD_FNAME, model_id, 
+                    data_size=[len(path_trn), len(path_val), len(path_tst)],
+                    global_step=global_step, 
+                    mean_dist=[result['mean_distance'] for result in eval_results],
+                    std_dist=[result['std_distance'] for result in eval_results],
+                    min_dist=[result['min_distance'] for result in eval_results],
+                    max_dist=[result['max_distance'] for result in eval_results])
+    log.info('save the results to %s', RECORD_FNAME)
 
-    # Viz Preds
-    if n_save_viz > 0:
-      input_dict_pred = dict((feature, arrays[:n_save_viz]) 
-                              for feature, arrays in input_dict_tst.items())
-      pred_input_fn = tf.estimator.inputs.numpy_input_fn(x=input_dict_pred,
-                                                          num_epochs=1, 
-                                                          shuffle=False)
-      pred_tst = nn.predict(input_fn=pred_input_fn)
-      
-      dest_viz = DestinationVizualizer(path_tst if params['use_path'] is True else None, 
-                                        meta_tst if params['use_meta'] is True else None, 
-                                        dest_tst, fpath_tst, dt_tst,
-                                        fpath_trn, model_id, save_dir='viz/dest')
-      for i, pred in enumerate(pred_tst):
-        dest_viz.plot_and_save(pred, i)
+  # PREDICTION
+  pred_tst = [x for x in nn.predict(input_fn=eval_input_fn_tst)]
 
-    # Plot all (true, pred) destination in test set
-    pred_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x=input_dict_tst,
-        num_epochs=1,
-        shuffle=False)
-    pred_tst = nn.predict(input_fn=pred_input_fn)
-    fname = '{viz_dir}/{model_id}.png'.format(viz_dir=VIZ_DIR, 
-                                              model_id=model_id)
-    visualize_pred_error(dest_tst, pred_tst, fname)
+  # Viz Preds
+  dest_viz = DestinationVizualizer(path_tst if params['use_path'] is True else None, 
+                                   meta_tst if params['use_meta'] is True else None, 
+                                   dest_tst, fpath_tst, dt_tst,
+                                   fpath_trn, model_id, save_dir='viz/dest_err_each')
+  if n_save_viz > 0:
+    for i in range(n_save_viz):
+      dest_viz.plot_and_save(pred_tst[i], i)
 
-  except ValueError as err:
-    log.error('%s. NO EVAL FOR %s', err, model_id)
+  # plot argmin/argmax of error
+  tst_argmin = eval_results[2]['argmin_index']
+  tst_argmax = eval_results[2]['argmax_index']
+  print(tst_argmin, tst_argmax)
+  dest_viz.plot_and_save(pred_tst[tst_argmin], tst_argmin, perform='good')
+  dest_viz.plot_and_save(pred_tst[tst_argmax], tst_argmax, perform='bad')
+
+  # Plot all (true, pred) destination in test set
+  visualize_pred_error(dest_tst, pred_tst, model_id, save_dir='viz/dest_err_all')
 
 
 def main(_):
@@ -218,32 +218,41 @@ def main(_):
         data_preprocessor.process_and_save(raw_data_fname)
 
   # training target cars
-  # car_id_list = [
-  # 'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
-  # 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-  # 39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
-  # 61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
-  # 81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 
-  # ] # all
-  car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
-    82, 83, 84, 85, 87, 88, 89, 90, 91, 92]
+  # python estimator.py dnn --gpu_no=0 --gpu_mem_frac=0.1 --path_dim=30 --n_dense=2 --cband=0.01 --train --record --dest_type=0
+
+  if FLAGS.car_id is not None:
+    car_id_list = {
+      1:['KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, ],
+      2:[19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, ],
+      3:[39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, ],
+      4:[61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, ],
+      5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
+    }[FLAGS.car_id]
+    # car_id_list = {
+    #   1:[93, 94, ],
+    #   2:[95, 96, ],
+    #   3:[97, ],
+    #   4:[98, ],
+    #   5:[100, ]
+    # }[FLAGS.car_id]
+  else:
+    # car_id_list = [
+      # 'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
+      # 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
+      # 39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
+      # 61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
+      # 81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
+    # ] # all
   # car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
-  #   'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
-  #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-  #   39, 42, 43, 44, 45, 46, 47, 49, 50
-  # ] # first half
-  # car_id_list = [FLAGS.car_id] if FLAGS.car_id is not None else [
-  #   52, 53, 54, 55, 56, 57, 58, 59, 60, 
-  #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
-  #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 
-  # ] # last half
+  #   82, 83, 84, 85, 87, 88, 89, 90, 91, 92]
+
 
   # input path specification
-  short_term_dest_list = [5] if FLAGS.dest_type is None else [FLAGS.dest_type]
-  proportion_list = [0.2] if FLAGS.proportion is None else [FLAGS.proportion]
+  short_term_dest_list = [0, 5] if FLAGS.dest_type is None else [FLAGS.dest_type]
+  proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8] if FLAGS.proportion is None else [FLAGS.proportion]
 
   # Used for loading data and building graph
-  use_meta_list = [True]
+  use_meta_list = [True, False]
   k_list = [5] if FLAGS.model_type == 'dnn' else [0]
   path_embedding_dim_list = [FLAGS.path_dim] if FLAGS.path_dim is not None else [50]
 
@@ -280,6 +289,8 @@ def main(_):
 
     model_params = dict(
         learning_rate=FLAGS.learning_rate,
+        keep_prob=FLAGS.keep_prob,
+        reg_scale=FLAGS.reg_scale,
         # feature_set
         use_meta=use_meta,
         use_path=True if proportion > 0 else False,
@@ -301,16 +312,15 @@ def main(_):
     id_components = [('car{:03}' if isinstance(car_id, int) else 'car{}').format(car_id),
                      'dest{:02}'.format(dest_term if dest_term > 0 else 0),
                      'path{:.1f}'.format(proportion),
-                     'meta_only' if proportion == 0 else '{model}_{edim}'.format(
-                          model=''.join([
-                              'meta_' if use_meta is True else '',
-                              'b' if FLAGS.bi_direction else '', FLAGS.model_type,
-                              '_k%d' % k if FLAGS.model_type == 'dnn' else '']),
-                          edim=path_embedding_dim),
-                     'dense_{}x{}'.format(path_embedding_dim, n_hidden_layer),
-                     'cband_{}'.format(cluster_bw),
-                     'mdn_mix_{}'.format(
-                          model_params['n_mixture']) if FLAGS.n_mixture is not None else '']
+                     '{meta}{model}_{edim}x{layer}'.format(
+                         meta='M' if use_meta is True else '_',
+                         model=('B' if FLAGS.bi_direction else  FLAGS.model_type[0].upper()) if proportion > 0 else '_',
+                         edim=path_embedding_dim,
+                         layer=n_hidden_layer),
+                     'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
+                    #  'cband_{}'.format(cluster_bw) if cluster_bw > 0 else '',
+                     # some details
+    ]
     model_id = '__'.join(id_components)
 
     log.infov('=' * 30 + '{} / {} ({:.1f}%)'.format(
@@ -374,19 +384,29 @@ if __name__ == "__main__":
       default=0.001,
       help='initial learning rate')
   parser.add_argument(
+      '--keep_prob', 
+      type=float, 
+      default=0.99,
+      help='keep_prob for dropout')
+  parser.add_argument(
+      '--reg_scale', 
+      type=float, 
+      default=0.01,
+      help='scale of regularizer for dense layers')
+  parser.add_argument(
       '--batch_size', 
       type=int, 
-      default=500,
+      default=1000,
       help='batch size')
   parser.add_argument(
       '--steps', 
       type=int, 
-      default=5000,
+      default=10000,
       help='step size')
   parser.add_argument(
       '--log_freq', 
       type=int, 
-      default=100,
+      default=10,
       help='log frequency')
   parser.add_argument(
       '--early_stopping_rounds', 
@@ -407,6 +427,13 @@ if __name__ == "__main__":
       default=False, #default
       const=True, #if the arg is given
       help='delete checkpoint of prev model')
+  parser.add_argument(
+      '--record', 
+      type=bool, 
+      nargs='?',
+      default=False, #default
+      const=True, #if the arg is given
+      help='save record or not')
   parser.add_argument(
       '--n_save_viz', 
       type=int, 

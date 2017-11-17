@@ -86,12 +86,16 @@ def build_graph(features, params):
     concat_target.append(path_embedding)
 
   x = tf.concat(concat_target, axis=1, name='concat_embedded_input')
+  x = tf.nn.dropout(x, keep_prob=params['keep_prob'], name='concat_dropout')
 
   # before FINAL dense layer
+  kernel_regularizer = tf.contrib.layers.l2_regularizer(scale=params['reg_scale'])
   for i_layer in range(1, params['n_hidden_layer'] + 1):
     # n_hidden_node = x.get_shape().as_list()[1]
     n_hidden_node = params['path_embedding_dim']
-    x = tf.layers.dense(x, n_hidden_node, activation=tf.nn.relu, name='dense_%d'%i_layer)
+    x = tf.layers.dense(x, n_hidden_node, activation=tf.nn.relu, name='dense_%d'%i_layer, 
+                        kernel_regularizer=kernel_regularizer)
+    x = tf.nn.dropout(x, keep_prob=params['keep_prob'], name='dense_%d_dropout'%i_layer)
   
   # FINAL prediction
   if params['cluster_bw'] > 0:
@@ -108,6 +112,9 @@ def build_graph(features, params):
 
 def model_fn(features, labels, mode, params):
   """Model function for Estimator."""
+
+  if mode != tf.estimator.ModeKeys.TRAIN:
+    params['keep_prob'] = 1.0
 
   # load validation data as constants
   features_val = params['features_val']
