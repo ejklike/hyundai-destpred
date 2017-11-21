@@ -37,13 +37,14 @@ def train_eval_save(car_id, proportion, model_id, params):
 
   # define model dir
   model_dir = os.path.join(MODEL_DIR, model_id)
-  model = Model(params, model_dir)
+  model = Model(params, model_dir, restart=FLAGS.restart)
 
   # Load train dataset
   fname_trn = os.path.join(
       DATA_DIR,
       get_pkl_file_name(car_id, proportion, dest_term, train=True))
   input_trn, target_trn, _, _ = load_seq2seq_data(fname_trn)
+  print('data shape of (trn): ', input_trn.shape)
 
   # test dataset
   fname_tst = os.path.join(
@@ -54,19 +55,23 @@ def train_eval_save(car_id, proportion, model_id, params):
 
   # Train Part
   if FLAGS.train:
-    # train model
-    model.train(input_trn, target_trn, restart=FLAGS.restart)
+    model.train(input_trn, target_trn)
 
+  # Test Part
   true_dest, pred_dest = dest_tst, []
   test_input_list = np.split(input_tst, axis=0, indices_or_sections=input_tst.shape[0])
   for i, input_data in enumerate(test_input_list):
-    seq_length = int(np.sum(np.sign(np.sum(np.abs(input_data), axis=1))))
+    seq_length = int(np.sum(np.sign(np.sum(np.abs(input_data), axis=2))))
     input_data_list = np.split(input_data, input_data.shape[1], axis=1)[:seq_length]
     print('--- test data', i, ', shape of', input_data.shape, ', length:', seq_length)
-    print(input_data[:, :seq_length, :])
-    
+    # print(input_data[:, :seq_length, :])
+
     # viz class
-    viz_save_dir = os.path.join(VIZ_DIR, car_id, str(proportion), convert_time_for_fname(dt_tst[i]))
+    viz_save_dir = os.path.join(VIZ_DIR, 
+                                str(car_id), 
+                                model_id,
+                                str(proportion), 
+                                convert_time_for_fname(dt_tst[i]))
     myplot = ResultPlot(model_id, save_dir=viz_save_dir)
     myplot.add_point(
         flat_and_trim_data(input_trn), label=None,
@@ -83,7 +88,7 @@ def train_eval_save(car_id, proportion, model_id, params):
     for counter, prev_input in enumerate(input_data_list[:seq_length], 1):
       next_input, state_in_v = model.predict_next(prev_input, state_in_v)
       dist_km = dist(next_input[:2], true_dest[i], to_km=True)
-      print('-', next_input[2], next_input[:2], true_dest[i], dist_km)
+      print('-input-', next_input[2], next_input[:2], true_dest[i], dist_km)
       myplot.add_tmp_point(
           next_input[:2], label='pred_destination',
           color='crimson', marker='*', s=100, alpha=1, must_contain=True)
@@ -97,7 +102,7 @@ def train_eval_save(car_id, proportion, model_id, params):
       input_v, state_in_v = model.predict_next(input_v, state_in_v)
       dist_km = dist(input_v[:2], true_dest[i], to_km=True)
       counter += 1
-      print(counter, input_v[2], input_v[:2], true_dest[i], dist_km)
+      print('-output-', counter, input_v[2], input_v[:2], true_dest[i], dist_km)
       myplot.add_tmp_point(
           input_v[:2], label='pred_destination',
           color='crimson', marker='*', s=100, alpha=1, must_contain=True)
@@ -106,7 +111,6 @@ def train_eval_save(car_id, proportion, model_id, params):
     pred_dest.append(next_input[:2])
 
   model.close_session()
-
 
 
 def main():
@@ -143,6 +147,7 @@ def main():
         # hyperparameters
         learning_rate=FLAGS.learning_rate,
         batch_size=FLAGS.batch_size,
+        bernoulli_penalty=FLAGS.bernoulli_penalty,
         validation_size=FLAGS.validation_size,
         early_stopping_rounds=FLAGS.early_stopping_rounds,
         log_freq=FLAGS.log_freq,
@@ -201,9 +206,14 @@ if __name__ == "__main__":
         default=0.2,
         help='validation size (default=0.2)')
     parser.add_argument(
+        '--bernoulli_penalty',
+        type=float,
+        default=100,
+        help='penalty scale for bernoulli NLL')
+    parser.add_argument(
         '--batch_size',
         type=int,
-        default=10,
+        default=50,
         help='batch size')
     parser.add_argument(
         '--steps',

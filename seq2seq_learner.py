@@ -39,10 +39,10 @@ class BatchGenerator(object):
 
 class Model(object):
 
-  def __init__(self, params, model_dir):
+  def __init__(self, params, model_dir, restart=False):
     self.params = params
     self.model_dir = model_dir
-    print(model_dir)
+    log.info('model_dir: %s', model_dir)
 
     self.global_step = tf.train.get_or_create_global_step()
 
@@ -82,19 +82,38 @@ class Model(object):
                                                       self.params)
       self.loss_t, self.train_op = loss_and_train_op(self.output_t, 
                                                      *self.params_out, 
+                                                     bernoulli_penalty=self.params['bernoulli_penalty'],
                                                      learning_rate=self.params['learning_rate'])
       scope.reuse_variables()
       *self.params_out1, self.state_out1 = infer_params(self.input_t1, 
                                                         self.cell, 
                                                         self.state_in1, 
                                                         self.params)
-      self.mu, self.cov, self.eop = predict(*self.params_out1, 
-                                            self.params)
+      self.mu, self.cov, self.eop = predict(*self.params_out1, self.params)
 
-    # Create and run the Op to initialize the variables.
-    init_op = tf.group(tf.global_variables_initializer(),
-                        tf.local_variables_initializer())
-    self.sess.run(init_op)
+
+
+    # Create a saver for writing training checkpoints.
+    self.saver = tf.train.Saver(max_to_keep=1)
+
+    # Remove prev model or not
+    if restart is True and tf.gfile.Exists(self.model_dir):
+      log.warning('Delete prev model_dir: %s', self.model_dir)
+      tf.gfile.DeleteRecursively(self.model_dir)
+
+    # Initialize OR restore variables
+    ckpt_path = tf.train.latest_checkpoint(self.model_dir)
+    if ckpt_path is not None:
+      log.info('Restore from the previous ckpt path: %s', ckpt_path)
+      self.saver.restore(self.sess, ckpt_path)
+    else:
+      # Create and run the Op to initialize the variables.
+      log.info('Initialize model parameters...')
+      init_op = tf.group(tf.global_variables_initializer(),
+                          tf.local_variables_initializer())
+      self.sess.run(init_op)
+    # # Instantiate a SummaryWriter to output summaries and the Graph.
+    # summary_writer = tf.summary.FileWriter(self.model_dir, self.sess.graph)
 
 
   def _generate_feed_dict(self, batch_generator):
@@ -118,32 +137,14 @@ class Model(object):
     return np.sum(losses) / iteration_size
 
 
-  def train(self, input_data, target_data, restart=False):
+  def train(self, input_data, target_data):
     """train the model"""
-
-    # Create a saver for writing training checkpoints.
-    self.saver = tf.train.Saver(max_to_keep=1)
-
-    # Remove prev model or not
-    if tf.gfile.Exists(self.model_dir):
-      if restart is True:
-        log.warning('Delete prev model_dir: %s', self.model_dir)
-        tf.gfile.DeleteRecursively(self.model_dir)
-      else:
-        ckpt_path = tf.train.latest_checkpoint(self.model_dir)
-        log.info('Ckpt path: %s', ckpt_path)
-        if ckpt_path is not None:
-          log.info('Restore from the ckpt path.')
-          self.saver.restore(self.sess, ckpt_path)
-
-    # # Instantiate a SummaryWriter to output summaries and the Graph.
-    # summary_writer = tf.summary.FileWriter(self.model_dir, self.sess.graph)
 
     # split train set into train/validation sets
     num_trn = int(len(input_data) * (1 - self.params['validation_size']))
     input_trn, input_val = input_data[:num_trn], input_data[num_trn:]
     target_trn, target_val = target_data[:num_trn], target_data[num_trn:]
-    print('input data shape of (trn, val): ', input_trn.shape, input_val.shape)
+    # print('input data shape of (trn, val): ', input_trn.shape, input_val.shape)
 
     # Training batch
     trn_batch_gen = BatchGenerator([input_trn, target_trn], self.params['batch_size'])
@@ -210,6 +211,15 @@ class Model(object):
     # WARNING: THIS CODE ONLY WORKS WITH BATCH SIZE 1 !!!
     # batch_size MUST BE "1" for valid prediction!!!!
     """
+    assert prev_input.shape[0] == 1
+
+    ckpt_path = tf.train.latest_checkpoint(self.model_dir)
+    if ckpt_path is not None:
+      log.info('Restore from the ckpt path: %s', ckpt_path)
+      self.saver.restore(self.sess, ckpt_path)
+    else:
+      raise ValueError('Exists no checkpoint. Train the model first.')
+    
     feed_dict = {self.state_in1: prev_state, self.input_t1: prev_input}
     *params_out1_v, mu_v, cov_v, eop_v, next_state = self.sess.run(
         [*self.params_out1, self.mu, self.cov, self.eop, self.state_out1], 
