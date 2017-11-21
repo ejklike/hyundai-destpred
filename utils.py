@@ -66,11 +66,11 @@ def _gen_seq_input(path, max_length, start_index=0, add_eos=False, dtype=np.floa
     """in: size of [max_length, 2], out: size of [max_length, 3], with adding eos to path
     """
     xy = path[start_index:start_index + max_length]
-    xy = resize_by_padding(xy, max_length)
-    eos = np.zeros((max_length, 1))
+    eos = np.zeros((xy.shape[0], 1))
     if add_eos:
         eos[-1] = 1.
-    return np.concatenate([xy, eos], axis=1).astype(dtype)
+    seq_input = np.concatenate([xy, eos], axis=1).astype(dtype)
+    return resize_by_padding(seq_input, max_length)
 
 
 def load_seq2seq_data(fname, proportion=None):
