@@ -12,6 +12,16 @@ def _variable_on_cpu(name, shape):
   return var
 
 
+def length(sequence):
+  """return sequenc-by-sequence lengths
+  input: sequence of shape [batch_size, seq_length, 3]
+  output: sequence lengths [batch_size,]
+  """
+  used = tf.sign(tf.reduce_max(tf.abs(sequence), 2)) # [batch_size, seq_length]
+  length = tf.reduce_sum(used, 1) # [batch_size,]
+  return tf.cast(length, tf.int32)
+
+
 def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
   """
   input: [batch_size, time_size, 2]
@@ -20,11 +30,13 @@ def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
   rnn_cell = rnn.BasicLSTMCell(n_unit)
   if bi_direction:
       outputs, _, = tf.nn.bidirectional_dynamic_rnn(
-          rnn_cell, rnn_cell, rnn_input, dtype=tf.float32, scope=scope)
+          rnn_cell, rnn_cell, rnn_input, dtype=tf.float32, scope=scope, 
+          sequence_length=length(rnn_input))
       outputs = tf.concat(outputs, axis=2) # concat fw and bw outputs
   else:
       outputs, _ = tf.nn.dynamic_rnn(
-          rnn_cell, rnn_input, dtype=tf.float32, scope=scope)
+          rnn_cell, rnn_input, dtype=tf.float32, scope=scope, 
+          sequence_length=length(rnn_input))
   return tf.unstack(outputs, axis=1, name='unstack')[-1]
 
 
