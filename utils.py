@@ -3,7 +3,6 @@ import os
 import pickle
 
 import matplotlib
-
 # Force matplotlib to not use any Xwindows backend.
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
@@ -12,6 +11,8 @@ from sklearn.mixture import GaussianMixture
 from sklearn.mixture import BayesianGaussianMixture
 from scipy.stats import entropy
 import numpy as np
+
+from log import log
 
 
 def maybe_exist(directory):
@@ -72,13 +73,16 @@ def _gen_seq_input(path, max_length, start_index=0, add_eos=False, dtype=np.floa
     return np.concatenate([xy, eos], axis=1).astype(dtype)
 
 
-def load_seq2seq_data(fname):
+def load_seq2seq_data(fname, proportion=None):
     """output: size of [data_size, max_length, 3]
     """
     data = pickle.load(open(fname, 'rb'))
     full_paths, paths, dests, dts = data['full_path'], data['path'], data['dest'], data['dt']
 
-    max_length = max(path.shape[0] for path in full_paths) - 1
+    if proportion is None:
+        max_length = max(path.shape[0] for path in full_paths) - 1
+    else:
+        max_length = max(path.shape[0] for path in paths) - 1
     model_input = [_gen_seq_input(path, max_length, start_index=0, add_eos=False) 
                    for path in full_paths]
     model_output = [_gen_seq_input(path, max_length, start_index=1, add_eos=True) 
@@ -291,14 +295,12 @@ class ResultPlot(object):
     def add_path(self, data, label=None, 
                  color='black', marker=None, must_contain=False):
         self.path_list.append([label, data, color, marker])
-        print(data)
         if must_contain is True:
             self.lim_list.append(data.reshape(-1, 2))
 
     def add_point(self, data, label=None, 
                   color='black', marker=None, s=100, alpha=1, must_contain=False):
         self.point_list.append([label, data, color, marker, s, alpha])
-        print(data)
         if must_contain is True:
             self.lim_list.append(data.reshape(-1, 2))
 
@@ -355,7 +357,7 @@ class ResultPlot(object):
         
         # SAVE
         fname = os.path.join(self.save_dir, self.model_id + '__' + kwargs_str + '.png')
-        print(fname)
+        log.info('Save PNG to: %s', fname)
         plt.savefig(fname); plt.close()
 
         # clean temporary things
