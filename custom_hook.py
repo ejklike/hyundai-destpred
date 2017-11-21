@@ -28,7 +28,7 @@ class EarlyStoppingHook(tf.train.SessionRunHook):
         # early stopping
         self._best_value = None
         self._best_value_step = None
-        
+
         # save checkpoint
         self._saver = None
         self._scaffold = None

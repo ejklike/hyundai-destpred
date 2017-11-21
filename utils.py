@@ -3,10 +3,13 @@ import os
 import pickle
 
 import matplotlib
+
 # Force matplotlib to not use any Xwindows backend.
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from sklearn.neighbors.kde import KernelDensity
+from sklearn.mixture import GaussianMixture
+from sklearn.mixture import BayesianGaussianMixture
 from scipy.stats import entropy
 import numpy as np
 
@@ -29,11 +32,11 @@ def convert_time_for_fname(date_time):
 
 def dist(x, y, to_km=False, std=False):
     rad_to_km = np.array([111.0, 88.8])
-    
+
     x, y = np.array(x).reshape(-1, 2), np.array(y).reshape(-1, 2)
-    delta_square = (x - y)**2
+    delta_square = (x - y) ** 2
     if to_km is True:
-        delta_square *= rad_to_km**2
+        delta_square *= rad_to_km ** 2
     distances = np.sqrt(np.sum(delta_square, axis=1))
     if std is False:
         return np.mean(distances)
@@ -45,59 +48,66 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
     base_str = '{train}_{car_id}_proportion_{proportion}_y_{dest_type}.p'
     file_name = base_str.format(
         train='train' if train else 'test',
-        car_id = 'VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
-        proportion=int(proportion*100) if proportion > 0 else 20,
+        car_id='VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
+        proportion=int(proportion * 100) if proportion > 0 else 20,
         dest_type=dest_term)
     return file_name
 
 
-def load_data(fname, k=0):
-  """
-  input data:
-      paths: list of path nparrays
-      metas: list of meta lists
-      dests: list of dest nparrays
-  output data:
-      paths: nparray of shape [data_size, ***]
-      metas: nparray of shape [data_size, meta_size]
-      dests: nparray of shape [data_size, 2]
-  """
-  data = pickle.load(open(fname, 'rb'))
-  paths, metas, dests = data['path'], data['meta'], data['dest']
-  full_paths, dts = data['full_path'], data['dt']
-
-  if k == 0: # RNN or NO PATH
-    def resize_by_padding(path, target_length):
-      """add zero padding prior to the given path"""
-      path_length = path.shape[0]
-      pad_width = ((target_length - path_length, 0), (0, 0))
-      return np.lib.pad(path, pad_width, 'constant', constant_values=0)
-    
-    max_length = max(p.shape[0] for p in paths)
-    paths = [resize_by_padding(p, max_length) for p in paths]
-    paths = np.stack(paths, axis=0)
-
-  else: # DNN
-    def resize_to_2k(path, k):
-      """remove middle portion of the given path (np array)"""
-        # When the prefix of the trajectory contains less than
-        # 2k points, the first and last k points overlap
-        # (De Brébisson, Alexandre, et al., 2015)
-      if len(path) < k: 
-        front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
-      else:
-        front_k, back_k = path[:k], path[-k:]
-      return np.concatenate([front_k, back_k], axis=0)
-
-    paths = [resize_to_2k(p, k) for p in paths]
-    paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
-  
-  metas, dests = np.array(metas), np.array(dests)
-
-  return paths, metas, dests, dts, full_paths
+def resize_by_padding(path, max_full_path):
+    """add zero padding after to the given path"""
+    path_length = path.shape[0]
+    pad_width = ((0, max_full_path - path_length), (0, 0))
+    return np.lib.pad(path, pad_width, 'constant', constant_values=0)
 
 
-def record_results(fname, model_id, data_size, global_step, 
+def _gen_seq_input(path, max_length, start_index=0, add_eos=False, dtype=np.float32):
+    """in: size of [max_length, 2], out: size of [max_length, 3], with adding eos to path
+    """
+    xy = path[start_index:start_index + max_length]
+    xy = resize_by_padding(xy, max_length)
+    eos = np.zeros((max_length, 1))
+    if add_eos:
+        eos[-1] = 1.
+    return np.concatenate([xy, eos], axis=1).astype(dtype)
+
+
+def load_seq2seq_data(fname):
+    """output: size of [data_size, max_length, 3]
+    """
+    data = pickle.load(open(fname, 'rb'))
+    full_paths, paths, dests, dts = data['full_path'], data['path'], data['dest'], data['dt']
+
+    max_length = max(path.shape[0] for path in full_paths) - 1
+    model_input = [_gen_seq_input(path, max_length, start_index=0, add_eos=False) 
+                   for path in full_paths]
+    model_output = [_gen_seq_input(path, max_length, start_index=1, add_eos=True) 
+                    for path in full_paths]
+
+    model_input = np.stack(model_input, axis=0)
+    model_output = np.stack(model_output, axis=0)
+
+    dests = np.array(dests, dtype=np.float32)
+
+    return model_input, model_output, dests, dts
+
+def trim_data(data):
+    """remove zero points
+    input: [original_length, 2]
+    output: [trimmed_length , 2]
+    """
+    return data[np.sum(data, axis=1) != 0]    
+
+def flat_and_trim_data(data):
+    """flatten and remove zero points
+    input: [batch_size, seq_length, 3]
+    output: [some_length , 2] (some_length < batch_size * seq_length)
+    """
+    data = data[:, :, :2].reshape(-1, 2)
+    return trim_data(data)
+
+
+def record_results(fname, model_id, data_size, global_step,
                    mean_dist, std_dist, min_dist, max_dist):
     if not os.path.exists(fname):
         with open(fname, 'w') as fout:
@@ -108,21 +118,21 @@ def record_results(fname, model_id, data_size, global_step,
             fout.write(''.join(['mean_' + s + ',' for s in fix]))
             fout.write(''.join(['std_' + s + ',' for s in fix]))
             fout.write(''.join(['min_' + s + ',' for s in fix]))
-            fout.write(''.join(['max_' + s + ',' for s in fix]))                
+            fout.write(''.join(['max_' + s + ',' for s in fix]))
             fout.write('\n')
     with open(fname, 'a') as fout:
         base_str = '{},' * (2 + 3 * 5) + '\n'
-        fout.write(base_str.format(model_id, *data_size, global_step, 
+        fout.write(base_str.format(model_id, *data_size, global_step,
                                    *mean_dist, *std_dist, *min_dist, *max_dist))
 
 
 def kde_divergence(dest_old, dest_new, bandwidth=0.1):
-  kde_old = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_old)
-  kde_new = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_new)
-  dest_all = np.concatenate([dest_old, dest_new], axis=0)
-  score_old = np.exp(kde_old.score_samples(dest_all))
-  score_new = np.exp(kde_new.score_samples(dest_all))
-  return entropy(score_new, qk=score_old)
+    kde_old = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_old)
+    kde_new = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_new)
+    dest_all = np.concatenate([dest_old, dest_new], axis=0)
+    score_old = np.exp(kde_old.score_samples(dest_all))
+    score_new = np.exp(kde_new.score_samples(dest_all))
+    return entropy(score_new, qk=score_old)
 
 
 def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None, **kwargs):
@@ -141,9 +151,10 @@ def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None, **kwarg
     fig, ax = plt.subplots()
     for label, path, color, marker, alpha in data_list:
         if path is not None:
-            ax.scatter(path[:, 1], path[:, 0], 
+            ax.scatter(path[:, 1], path[:, 0],
                        c=color, marker=marker, label=label, alpha=alpha, s=100)
-    ax.legend(); ax.grid(True)
+    ax.legend();
+    ax.grid(True)
 
     fname_without_extension = fname[:-4]
     *save_dir, fname_without_dir = fname_without_extension.split('/')
@@ -152,9 +163,9 @@ def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None, **kwarg
     title = '{car}, {dest}{setting}'.format(
         car=car.upper(),
         dest='FINAL DEST' if dest[-1] == '0' else 'DEST AFTER {} MIN.'.format(dest[-1]),
-        setting='' if not kwargs 
-                else ('\n(' + ', '.join(['{}={}'.format(k, v) for k, v in kwargs.items()]) + ')'))
-        # setting='' if centers is None else '\n(cband=%d, n_centers=%d)'%(cband, len(centers)))
+        setting='' if not kwargs
+        else ('\n(' + ', '.join(['{}={}'.format(k, v) for k, v in kwargs.items()]) + ')'))
+    # setting='' if centers is None else '\n(cband=%d, n_centers=%d)'%(cband, len(centers)))
     title += '\n(diag_rad={range_rad:.3f}, diag_km={range_km:.2f}, trn only)'.format(
         range_rad=dist(np.max(dest_trn, axis=0), np.min(dest_trn, axis=0), to_km=False),
         range_km=dist(np.max(dest_trn, axis=0), np.min(dest_trn, axis=0), to_km=True))
@@ -163,44 +174,50 @@ def visualize_cluster(dest_trn, dest_val, dest_tst, centers, fname=None, **kwarg
     fig.subplots_adjust(top=0.8)
     plt.xlabel('longitude (translated)')
     plt.ylabel('latitude (translated)')
-    plt.savefig(fname); plt.close()
+    plt.savefig(fname);
+    plt.close()
 
 
 def visualize_dest_density(dest_trn, dest_tst, car_id, dest_term,
-                           density_segment=10, save_dir='viz'):
+                           density_segment=10, bandwidth_param=20, save_dir='viz'):
     maybe_exist(save_dir)
 
-    #min/max of plot axes
+    # min/max of plot axes
     all_points = np.concatenate([dest_trn, dest_tst], axis=0)
     xmin, ymin = np.min(all_points, axis=0)
     xmax, ymax = np.max(all_points, axis=0)
 
     # add some margin
-    dx, dy = xmax-xmin, ymax-ymin
-    xmin, xmax = xmin - dx/10, xmax + dx/10
-    ymin, ymax = ymin - dy/10, ymax + dy/10
-    
+    dx, dy = xmax - xmin, ymax - ymin
+    xmin, xmax = xmin - dx / 10, xmax + dx / 10
+    ymin, ymax = ymin - dy / 10, ymax + dy / 10
+
     # meshgrid for density scoring
     nx, ny = (100, 100)
-    dx, dy = (xmax-xmin)/nx, (ymax-ymin)/ny
+    dx, dy = (xmax - xmin) / nx, (ymax - ymin) / ny
     xgrid = np.linspace(xmin, xmax, nx)
     ygrid = np.linspace(ymin, ymax, ny)
-    gridX, gridY = np.meshgrid(xgrid, ygrid) #meshgrid X, Y
-        
+    gridX, gridY = np.meshgrid(xgrid, ygrid)  # meshgrid X, Y
+
     # print('score evaluation...')
-    gridInput = np.vstack([gridX.ravel(), gridY.ravel()]).T #input 2d vectors for scoring
-    bandwidth = dist((xmin, ymin), (xmax, ymax), to_km=False) / 20
-    bandwidth_km = dist((xmin, ymin), (xmax, ymax), to_km=True) / 20
+    gridInput = np.vstack([gridX.ravel(), gridY.ravel()]).T  # input 2d vectors for scoring
+    bandwidth = dist((xmin, ymin), (xmax, ymax), to_km=False) / bandwidth_param
+    bandwidth_km = dist((xmin, ymin), (xmax, ymax), to_km=True) / bandwidth_param
+    # bandwidth = bandwidth
+    # rad_to_km = np.array([111.0, 88.8])
+    # bandwidth_km = int(np.sqrt(np.sum(np.array([bandwidth, bandwidth])**2 * rad_to_km**2)))
     kde = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_trn)
+    # kde = BayesianGaussianMixture(n_components=3, weight_concentration_prior=1, weight_concentration_prior_type='dirichlet_distribution').fit(dest_trn)
+    # kde = GaussianMixture(n_components=2).fit(dest_trn)
     grid_score = np.exp(kde.score_samples(gridInput))
     grid_score = grid_score.reshape(gridX.shape)
 
     min_score = np.amin(grid_score)
-    max_score = np.amax(grid_score)        
+    max_score = np.amax(grid_score)
     # print('---the sum of score =', dx * dy * np.sum(grid_score))
     # print('---the range of score = ({}, {})'.format(min_score, max_score))
 
-    #plot contour
+    # plot contour
     fig, ax = plt.subplots()
     ax.set_xlim([ymin, ymax])
     ax.set_ylim([xmin, xmax])
@@ -209,8 +226,8 @@ def visualize_dest_density(dest_trn, dest_tst, car_id, dest_term,
     cs = ax.contourf(gridY, gridX, grid_score, levels=levels, cmap=cmap, origin='upper')
     fig.colorbar(cs, ax=ax, shrink=0.9)
 
-    #show bandwidth length
-    dx, dy = xmax-xmin, ymax-ymin
+    # show bandwidth length
+    dx, dy = xmax - xmin, ymax - ymin
     lbottom = [xmin + 0.1 * dx, ymin + 0.05 * dy]
     rbottom = [xmin + 0.1 * dx, ymax - 0.05 * dy]
     lscore, rscore = np.exp(kde.score_samples([lbottom, rbottom]))
@@ -220,7 +237,7 @@ def visualize_dest_density(dest_trn, dest_tst, car_id, dest_term,
     else:
         tx, ty = lbottom
         ty_end, ty_text = ty + bandwidth, ty + 0.1 * bandwidth
-    
+
     ax.plot([ty_end, ty], [tx, tx], 'k-', lw=2)
     ax.annotate('%.2f' % bandwidth, xy=[ty, tx], xytext=[ty_text, tx - 0.05 * dx])
 
@@ -232,115 +249,119 @@ def visualize_dest_density(dest_trn, dest_tst, car_id, dest_term,
     ]
     for label, path, color, marker, alpha in data_list:
         if path is not None:
-            ax.scatter(path[:, 1], path[:, 0], 
+            ax.scatter(path[:, 1], path[:, 0],
                        c=color, marker=marker, label=label, alpha=alpha)
-    ax.legend(); ax.grid(True)
+    ax.legend();
+    ax.grid(True)
 
     # SET TITLES
     base_title = 'CAR_NO: {car_id}, DEST: {dest}\n(bandwidth_rad={rad:.2f}, bandwidth_km={km:.1f})'
     dest_type = 'FINAL' if dest_term == 0 else 'AFTER_{}_MIN.'.format(dest_term)
     title = base_title.format(car_id=str(car_id).rjust(3, '0'),
                               dest=dest_type,
-                              rad=bandwidth, 
+                              rad=bandwidth,
                               km=bandwidth_km)
     ax_title = ax.set_title(title, fontsize=12)
     fig.subplots_adjust(top=0.8)
-    plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
-    
+    plt.xlabel('longitude (translated)');
+    plt.ylabel('latitude (translated)')
+
     # SAVE
     fname = os.path.join(save_dir, '{}__CAR{}.png'.format(dest_type, str(car_id).rjust(3, '0')))
-    plt.savefig(fname); plt.close()
+    plt.savefig(fname)
+    plt.close()
 
 
-class DestinationVizualizer(object):
-
-    def __init__(self, path_tst, meta_tst, dest_tst, full_path_tst, dt_tst,
-                 full_path_trn, model_id, save_dir='viz'):
+class ResultPlot(object):
+    def __init__(self, model_id, save_dir='viz'):
         maybe_exist(save_dir)
-
-        self.training_path_points = np.concatenate(full_path_trn, axis=0)
-        self.full_path_tst = full_path_tst
-        self.dest_tst = dest_tst
-        self.dt_tst = dt_tst
-
-        self.meta_tst = meta_tst # or None
-        self.path_tst = path_tst
-        
         self.model_id = model_id
         self.save_dir = save_dir
 
-    def plot_and_save(self, y_pred, i, **kwargs):
-        # data, label, color, marker
-        # colorname from https://matplotlib.org/examples/color/named_colors.html
-        y_true = self.dest_tst[i]
-        full_path = self.full_path_tst[i]
-        point_data_list = [
-            ('true_destination', y_true, 'mediumblue', '*'),
-            ('pred_destination', y_pred, 'crimson', '*'),
-        ]
-        path_data_list = [ 
-            ('full_path', full_path, 'lightgrey', '.'),
-        ]
+        # label, data, color, marker, must_contain
+        self.path_list = []
+        self.point_list = []
+        self.lim_list = []
 
-        if self.path_tst is not None:
-            input_path = self.path_tst[i]
+        # temporary memory
+        self.tmp_path_list = []
+        self.tmp_point_list = []
+        self.tmp_lim_list = []
 
-            if len(input_path.shape) == 1:
-                input_path = input_path.reshape(-1, 2) # from 1d to 2d data
-                path_data_list += [
-                    ('model_input', input_path[:len(input_path)//2], 'mediumblue', '.'),
-                    (None, input_path[len(input_path)//2:], 'mediumblue', '.')]
-            else:
-                input_path = input_path[np.sum(input_path, axis=1) != 0, :] # remove zero paddings
-                path_data_list += [('model_input', input_path, 'mediumblue', '.')]
+    def add_path(self, data, label=None, 
+                 color='black', marker=None, must_contain=False):
+        self.path_list.append([label, data, color, marker])
+        print(data)
+        if must_contain is True:
+            self.lim_list.append(data.reshape(-1, 2))
 
-        if self.meta_tst is not None:
-            holiday, _, hour, weekday = self.meta_tst[i]
-            meta_str = '{hour:00} {ampm}, {weekday}{holiday}'.format(
-                weekday={0:'MON', 1:'TUE', 2:'WED', 3:'THU', 4:'FRI', 5:'SAT', 6:'SUN'}[weekday], 
-                holiday='(h)' if holiday == 1 else '', 
-                hour=12 if hour % 12 == 0 else (hour % 12),
-                ampm='AM' if hour < 12 else 'PM')
-            point_data_list += [(meta_str, [-100, -100], 'white', '')]
+    def add_point(self, data, label=None, 
+                  color='black', marker=None, s=100, alpha=1, must_contain=False):
+        self.point_list.append([label, data, color, marker, s, alpha])
+        print(data)
+        if must_contain is True:
+            self.lim_list.append(data.reshape(-1, 2))
 
+    def add_tmp_path(self, data, label=None, 
+                     color='black', marker=None, must_contain=False):
+        self.tmp_path_list.append([label, data, color, marker])
+        if must_contain is True:
+            self.tmp_lim_list.append(data.reshape(-1, 2))
+
+    def add_tmp_point(self, data, label=None, 
+                      color='black', marker=None, s=100, alpha=1, must_contain=False):
+        self.tmp_point_list.append([label, data, color, marker, s, alpha])
+        if must_contain is True:
+            self.tmp_lim_list.append(data.reshape(-1, 2))
+
+    def draw_and_save(self, dist_km=None, **kwargs):
         fig, ax = plt.subplots()
-        
+
+        # concatenate all information
+        this_lim_list = self.lim_list + self.tmp_lim_list
+        this_point_list = self.point_list + self.tmp_point_list
+        this_path_list = self.path_list + self.tmp_path_list
+
         # set xlim and ylim of viz
-        all_points_this_path = np.concatenate([full_path, y_pred.reshape(1, -1)], axis=0)
-        xmin, ymin = np.min(all_points_this_path, axis=0)
-        xmax, ymax = np.max(all_points_this_path, axis=0)
-        dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
+        must_visible_points = np.concatenate(this_lim_list, axis=0)
+        xmin, ymin = np.min(must_visible_points, axis=0)
+        xmax, ymax = np.max(must_visible_points, axis=0)
+        dx, dy = 0.1 * (xmax - xmin), 0.1 * (ymax- ymin)
         ax.set_xlim([ymin - dy, ymax + dy])
         ax.set_ylim([xmin - dx, xmax + dx])
 
-        # scatter points and plot path
-        ax.scatter(self.training_path_points[:, 1], self.training_path_points[:, 0], 
-                   c='greenyellow', marker='.', s=10, alpha=0.3)
-        for label, path, color, marker in path_data_list:
+        # scatter points
+        for label, point, color, marker, s, alpha in this_point_list:
+            if np.sum(point.shape) == 2:
+                point = point.reshape(-1, 2)
+            ax.scatter(point[:, 1], point[:, 0], 
+                       c=color, marker=marker, label=label, s=s, alpha=alpha)
+        # plot paths
+        for label, path, color, marker in this_path_list:
             ax.plot(path[:, 1], path[:, 0], c=color, marker=marker, label=label)
-        for label, point, color, marker in point_data_list:
-            ax.scatter(point[1], point[0], 
-                    c=color, marker=marker, label=label, s=100)#, linewidths=10)
+        
+        # add regends and grids
         ax.legend(); ax.grid(True)
 
         # SET TITLES
-        start_dt = convert_time_for_fname(self.dt_tst[i])
-        title = ('{model_id}'
-                 '\nSTART_DT={start_dt}'
-                 '\n(dist_rad={dist_rad:.3f}, dist_km={dist_km:.2f})')
+        kwargs_str = '_'.join([k + '_' + v for k, v in sorted(kwargs.items())])
+        title = '{model_id}\n{kwargs_str}, dist={dist_km}km'
         title = title.format(model_id=self.model_id,
-                             start_dt=start_dt,
-                             dist_rad=dist(y_true, y_pred, to_km=False),
-                             dist_km=dist(y_true, y_pred, to_km=True))
+                             kwargs_str=kwargs_str,
+                             dist_km='N/A' if dist_km is None else '%.1f' % dist_km)
         ax_title = ax.set_title(title, fontsize=12)
         fig.subplots_adjust(top=0.8)
         plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
         
         # SAVE
-        kwargs_str = '__'.join([k + '_' + v for k, v in sorted(kwargs.items())])
-        fname = os.path.join(self.save_dir, 
-                             start_dt + '__' + self.model_id + '__' + kwargs_str + '.png')
+        fname = os.path.join(self.save_dir, self.model_id + '__' + kwargs_str + '.png')
+        print(fname)
         plt.savefig(fname); plt.close()
+
+        # clean temporary things
+        self.tmp_point_list = []
+        self.tmp_path_list = []
+        self.tmp_lim_list = []
 
 
 def visualize_pred_error(y_true, y_pred, model_id, save_dir='viz'):
