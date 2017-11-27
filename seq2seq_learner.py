@@ -7,8 +7,8 @@ import tensorflow as tf
 from tensorflow.contrib import rnn
 
 from log import log
-from custom_loss import neg_log_likelihood_loss
-from seq2seq_model import infer_params, loss_and_train_op, predict
+from custom_loss import mean_squared_distance_loss
+from seq2seq_model import predict_next, loss_and_train_op
 
 DTYPE = tf.float32
 
@@ -56,42 +56,37 @@ class Model(object):
 
     # Placeholders
     self.input_t = tf.placeholder(dtype=tf.float32, 
-                                  shape=[None, None, 3], 
+                                  shape=[None, None, 2], 
                                   name='input_placeholder')
     self.output_t = tf.placeholder(dtype=tf.float32, 
-                                   shape=[None, None, 3], 
+                                   shape=[None, None, 2], 
                                    name='target_placeholder')
     self.input_t1 = tf.placeholder(dtype=tf.float32, 
-                                   shape=[None, 1, 3], 
-                                   name='input_placeholder_tst')
-
+                                  shape=[1, None, 2], 
+                                  name='input_placeholder')
     # CELL definition
     self.cell = rnn.BasicLSTMCell(self.params['rnn_size'], state_is_tuple=True)
     # cell = rnn.MultiRNNCell([cell] * 3, state_is_tuple=True)
     self.state_in = self.cell.zero_state(batch_size=params['batch_size'], dtype=DTYPE)
     # state_in = tf.identity(zero_state, name='state_in')
     self.state_in1 = self.cell.zero_state(batch_size=1, dtype=DTYPE)
-    # state_in_tst = tf.identity(zero_state_tst, name='state_in_tst')
+    # state_in = tf.identity(zero_state, name='state_in')
 
     # Build a Graph that trains the model with one batch of examples and
     # updates the model parameters.
     with tf.variable_scope('infer') as scope:
-      *self.params_out, self.state_out = infer_params(self.input_t, 
+      self.predicted_t, self.state_out = predict_next(self.input_t, 
                                                       self.cell, 
                                                       self.state_in, 
                                                       self.params)
-      self.loss_t, self.train_op = loss_and_train_op(self.output_t, 
-                                                     *self.params_out, 
-                                                     bernoulli_penalty=self.params['bernoulli_penalty'],
-                                                     learning_rate=self.params['learning_rate'])
       scope.reuse_variables()
-      *self.params_out1, self.state_out1 = infer_params(self.input_t1, 
-                                                        self.cell, 
+      self.predicted_t1, self.state_out1 = predict_next(self.input_t1, 
+                                                        self.cell,
                                                         self.state_in1, 
                                                         self.params)
-      self.mu, self.cov, self.eop = predict(*self.params_out1, self.params)
-
-
+    self.loss_t, self.train_op = loss_and_train_op(self.output_t, 
+                                                    self.predicted_t, 
+                                                    learning_rate=self.params['learning_rate'])
 
     # Create a saver for writing training checkpoints.
     self.saver = tf.train.Saver(max_to_keep=1)
@@ -219,22 +214,10 @@ class Model(object):
       self.saver.restore(self.sess, ckpt_path)
     else:
       raise ValueError('Exists no checkpoint. Train the model first.')
-    
-    feed_dict = {self.state_in1: prev_state, self.input_t1: prev_input}
-    *params_out1_v, mu_v, cov_v, eop_v, next_state = self.sess.run(
-        [*self.params_out1, self.mu, self.cov, self.eop, self.state_out1], 
-        feed_dict=feed_dict)
-    
-    for k, v in zip(self.params_out1, params_out1_v):
-      print(k, ':', v)
-    
-    def sample_gaussian_2d(mu, cov):
-      return np.random.multivariate_normal(mu, cov, 1)[0]
 
-    xy = sample_gaussian_2d(mu_v, cov_v)
-    # xy = mu_v
-    eop_v = int(eop_v)
-    next_input = np.array([xy[0], xy[1], eop_v], dtype=np.float32)
+    feed_dict = {self.state_in1: prev_state, self.input_t1: prev_input}
+    next_input, next_state = self.sess.run([self.predicted_t1, self.state_out1],
+                                           feed_dict=feed_dict)
     return next_input, next_state
 
   def close_session(self):

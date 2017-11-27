@@ -87,8 +87,9 @@ def train_eval_save(car_id, proportion, model_id, params):
     state_in_v = model.get_test_input_state()
     for counter, prev_input in enumerate(input_data_list[:seq_length], 1):
       next_input, state_in_v = model.predict_next(prev_input, state_in_v)
-      dist_km = dist(next_input[:2], true_dest[i], to_km=True)
-      print('-input-', next_input[2], next_input[:2], true_dest[i], dist_km)
+      print(next_input.shape)
+      dist_km = dist(next_input, true_dest[i], to_km=True)
+      print('-input-', next_input, true_dest[i], dist_km)
       myplot.add_tmp_point(
           next_input[:2], label='pred_destination',
           color='crimson', marker='*', s=100, alpha=1, must_contain=True)
@@ -102,7 +103,7 @@ def train_eval_save(car_id, proportion, model_id, params):
       input_v, state_in_v = model.predict_next(input_v, state_in_v)
       dist_km = dist(input_v[:2], true_dest[i], to_km=True)
       counter += 1
-      print('-output-', counter, input_v[2], input_v[:2], true_dest[i], dist_km)
+      print('-output-', counter, input_v, true_dest[i], dist_km)
       myplot.add_tmp_point(
           input_v[:2], label='pred_destination',
           color='crimson', marker='*', s=100, alpha=1, must_contain=True)
@@ -152,14 +153,12 @@ def main():
         early_stopping_rounds=FLAGS.early_stopping_rounds,
         log_freq=FLAGS.log_freq,
         # model type
-        n_mixture=FLAGS.n_mixture,
         rnn_size=rnn_size,
     )
 
     # Model id 'meta' if use_meta else '',
     id_components = [('car{:03}' if isinstance(car_id, int) else 'car{}').format(car_id),
-                      'edim{}'.format(rnn_size),
-                      'nmix{}'.format(model_params['n_mixture'])]
+                      'edim{}'.format(rnn_size)]
     model_id = '__'.join(id_components)
 
     log.infov('=' * 30 + '{} / {} ({:.1f}%)'.format(
@@ -259,10 +258,6 @@ if __name__ == "__main__":
         '--rnn_size',
         type=int,
         default=None)
-    parser.add_argument(
-        '--n_mixture',
-        type=int,
-        default=20)
 
     FLAGS, unparsed = parser.parse_known_args()
 

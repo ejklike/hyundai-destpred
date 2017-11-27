@@ -32,6 +32,7 @@ def convert_time_for_fname(date_time):
 
 
 def dist(x, y, to_km=False, std=False):
+    assert x.shape == y.shape
     rad_to_km = np.array([111.0, 88.8])
 
     x, y = np.array(x).reshape(-1, 2), np.array(y).reshape(-1, 2)
@@ -65,12 +66,58 @@ def resize_by_padding(path, max_full_path):
 def _gen_seq_input(path, max_length, start_index=0, add_eos=False, dtype=np.float32):
     """in: size of [max_length, 2], out: size of [max_length, 3], with adding eos to path
     """
-    xy = path[start_index:start_index + max_length]
-    eos = np.zeros((xy.shape[0], 1))
-    if add_eos:
-        eos[-1] = 1.
-    seq_input = np.concatenate([xy, eos], axis=1).astype(dtype)
+    seq_input = path[start_index:start_index + max_length]
+    # eos = np.zeros((xy.shape[0], 1))
+    # if add_eos:
+    #     eos[-1] = 1.
+    # seq_input = np.concatenate([xy, eos], axis=1).astype(dtype)
     return resize_by_padding(seq_input, max_length)
+
+
+def load_data(fname, k=0):
+  """
+  input data:
+      paths: list of path nparrays
+      metas: list of meta lists
+      dests: list of dest nparrays
+  output data:
+      paths: nparray of shape [data_size, ***]
+      metas: nparray of shape [data_size, meta_size]
+      dests: nparray of shape [data_size, 2]
+  """
+  data = pickle.load(open(fname, 'rb'))
+  paths, metas, dests = data['path'], data['meta'], data['dest']
+  full_paths, dts = data['full_path'], data['dt']
+
+  if k == 0: # RNN or NO PATH
+    def resize_by_padding(path, target_length):
+      """add zero padding prior to the given path"""
+      path_length = path.shape[0]
+      pad_width = ((target_length - path_length, 0), (0, 0))
+      return np.lib.pad(path, pad_width, 'constant', constant_values=0)
+    
+    max_length = max(p.shape[0] for p in paths)
+    paths = [resize_by_padding(p, max_length) for p in paths]
+    paths = np.stack(paths, axis=0)
+
+  else: # DNN
+    def resize_to_2k(path, k):
+      """remove middle portion of the given path (np array)"""
+        # When the prefix of the trajectory contains less than
+        # 2k points, the first and last k points overlap
+        # (De Brébisson, Alexandre, et al., 2015)
+      if len(path) < k: 
+        front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
+      else:
+        front_k, back_k = path[:k], path[-k:]
+      return np.concatenate([front_k, back_k], axis=0)
+
+    paths = [resize_to_2k(p, k) for p in paths]
+    paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
+  
+  metas, dests = np.array(metas), np.array(dests)
+
+  return paths, metas, dests, dts, full_paths
 
 
 def load_seq2seq_data(fname, proportion=None):
@@ -369,7 +416,7 @@ class ResultPlot(object):
 def visualize_pred_error(y_true, y_pred, model_id, save_dir='viz'):
     maybe_exist(save_dir)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(20, 20))
 
     # min/max of plot axes
     all_points = np.concatenate([y_true, y_pred], axis=0)
@@ -380,18 +427,60 @@ def visualize_pred_error(y_true, y_pred, model_id, save_dir='viz'):
     ax.set_ylim([xmin - dx, xmax + dx])
     
     ax.scatter([x[1] for x in y_true], [x[0] for x in y_true], 
-                c='mediumblue', marker='.', label='true_destination', alpha=0.3, s=50, linewidths=3)
+                c='mediumblue', marker='.', label='start', alpha=0.3, s=10)
     ax.scatter([x[1] for x in y_pred], [x[0] for x in y_pred], 
-               c='crimson', marker='.', label='pred_destination', alpha=0.3, s=50, linewidths=3)
+               c='crimson', marker='.', label='end', alpha=0.3, s=10)
 
     for y1, y2 in zip(y_true, y_pred):
-        plt.plot((y1[1], y2[1]), (y1[0], y2[0]), ':', c='xkcd:midnight blue', alpha=0.3)
+        plt.plot((y1[1], y2[1]), (y1[0], y2[0]), '-', c='black', marker=None, linewidth=0.1)
     ax.legend()
     ax.grid(True)
 
     # SET TITLES
-    title = model_id + '\nError (mean, std) : ({:.2f}, {:.2f})rad, ({:.1f}, {:.1f})km'.format(
-        *dist(y_true, y_pred, to_km=False, std=True), *dist(y_true, y_pred, to_km=True, std=True))
+    title = model_id
+    # title += '\nError (mean, std) : ({:.2f}, {:.2f})rad, ({:.1f}, {:.1f})km'.format(
+    #     *dist(y_true, y_pred, to_km=False, std=True), *dist(y_true, y_pred, to_km=True, std=True))
+    ax_title = ax.set_title(title, fontsize=12)
+    fig.subplots_adjust(top=0.8)
+    plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
+    
+    # SAVE
+    fname = os.path.join(save_dir, model_id + '.png')
+    plt.savefig(fname); plt.close()
+
+def visualize_pred_error_two_split(y_true_trn, y_pred_trn, 
+                                   y_true_tst, y_pred_tst, model_id, save_dir='viz'):
+    maybe_exist(save_dir)
+
+    fig, ax = plt.subplots(figsize=(20, 20))
+
+    y_true = np.concatenate([y_true_trn, y_true_tst], axis=0)
+    y_pred= np.concatenate([y_pred_trn, y_pred_tst], axis=0)
+
+    # min/max of plot axes
+    all_points = np.concatenate([y_true, y_pred], axis=0)
+    xmin, ymin = np.min(all_points, axis=0)
+    xmax, ymax = np.max(all_points, axis=0)
+    dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
+    ax.set_xlim([ymin - dy, ymax + dy])
+    ax.set_ylim([xmin - dx, xmax + dx])
+    
+    ax.scatter([x[1] for x in y_true], [x[0] for x in y_true], 
+                c='mediumblue', marker='.', label='start', alpha=0.3, s=10)
+    ax.scatter([x[1] for x in y_pred], [x[0] for x in y_pred], 
+               c='crimson', marker='.', label='end', alpha=0.3, s=10)
+
+    for y1, y2 in zip(y_true_trn, y_pred_trn):
+        plt.plot((y1[1], y2[1]), (y1[0], y2[0]), '-', c='black', marker=None, linewidth=0.1)
+    for y1, y2 in zip(y_true_tst, y_pred_tst):
+        plt.plot((y1[1], y2[1]), (y1[0], y2[0]), '-', c='red', marker=None, linewidth=1, alpha=0.1)
+    ax.legend()
+    ax.grid(True)
+
+    # SET TITLES
+    title = model_id
+    # title += '\nError (mean, std) : ({:.2f}, {:.2f})rad, ({:.1f}, {:.1f})km'.format(
+    #     *dist(y_true, y_pred, to_km=False, std=True), *dist(y_true, y_pred, to_km=True, std=True))
     ax_title = ax.set_title(title, fontsize=12)
     fig.subplots_adjust(top=0.8)
     plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
