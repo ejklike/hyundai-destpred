@@ -78,6 +78,35 @@ def _mean(values, metrics_collections=None,
     return mean_t, update_op
 
 
+def _weighted_mean(values, weights, metrics_collections=None,
+                   updates_collections=None, name=None):
+  """
+  divide the total by counts, returns a weighted mean value and a update_op
+  """
+  with variable_scope.variable_scope(name, 'weighted_mean', (values, )):
+    values = math_ops.to_float(values)
+
+    total = _create_local('total', shape=[])
+    count = _create_local('count', shape=[])
+
+    num_values = math_ops.to_float(math_ops.reduce_sum(weights))
+
+    update_total_op = state_ops.assign_add(total, math_ops.reduce_sum(values * weights))
+    with ops.control_dependencies([values]):
+      update_count_op = state_ops.assign_add(count, num_values)
+
+    mean_t = _safe_div(total, count, 'value')
+    update_op = _safe_div(update_total_op, update_count_op, 'update_op')
+
+    if metrics_collections:
+      ops.add_to_collections(metrics_collections, mean_t)
+
+    if updates_collections:
+      ops.add_to_collections(updates_collections, update_op)
+
+    return mean_t, update_op
+
+
 def _std(values, metrics_collections=None,
          updates_collections=None, name=None):
   """
@@ -205,6 +234,20 @@ def mean_distance_metric(labels, predictions,
   distances = math_ops.sqrt(squared_deistances)
 
   return _mean(distances, metrics_collections, updates_collections, name or 'mean_distance')
+
+
+def weighted_mean_distance_metric(labels, predictions, weights,
+                                  metrics_collections=None,
+                                  updates_collections=None,
+                                  name=None):
+  """
+  calculate the weighted mean of distances in kilometer unit
+  """
+  squared_deistances = compute_squared_distance_by_instance(labels, predictions)
+  distances = math_ops.sqrt(squared_deistances)
+
+  return _weighted_mean(distances, weights, metrics_collections, updates_collections, 
+                        name or 'weighted_mean_distance')
 
 
 def std_distance_metric(labels, predictions,

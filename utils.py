@@ -62,39 +62,6 @@ def resize_by_padding(path, max_full_path):
     return np.lib.pad(path, pad_width, 'constant', constant_values=0)
 
 
-def _gen_seq_input(path, max_length, start_index=0, add_eos=False, dtype=np.float32):
-    """in: size of [max_length, 2], out: size of [max_length, 3], with adding eos to path
-    """
-    xy = path[start_index:start_index + max_length]
-    eos = np.zeros((xy.shape[0], 1))
-    if add_eos:
-        eos[-1] = 1.
-    seq_input = np.concatenate([xy, eos], axis=1).astype(dtype)
-    return resize_by_padding(seq_input, max_length)
-
-
-def load_seq2seq_data(fname, proportion=None):
-    """output: size of [data_size, max_length, 3]
-    """
-    data = pickle.load(open(fname, 'rb'))
-    full_paths, paths, dests, dts = data['full_path'], data['path'], data['dest'], data['dt']
-
-    if proportion is None:
-        max_length = max(path.shape[0] for path in full_paths) - 1
-    else:
-        max_length = max(path.shape[0] for path in paths) - 1
-    model_input = [_gen_seq_input(path, max_length, start_index=0, add_eos=False) 
-                   for path in full_paths]
-    model_output = [_gen_seq_input(path, max_length, start_index=1, add_eos=True) 
-                    for path in full_paths]
-
-    model_input = np.stack(model_input, axis=0)
-    model_output = np.stack(model_output, axis=0)
-
-    dests = np.array(dests, dtype=np.float32)
-
-    return model_input, model_output, dests, dts
-
 def trim_data(data):
     """remove zero points
     input: [original_length, 2]
@@ -107,8 +74,58 @@ def flat_and_trim_data(data):
     input: [batch_size, seq_length, 3]
     output: [some_length , 2] (some_length < batch_size * seq_length)
     """
-    data = data[:, :, :2].reshape(-1, 2)
+    data = data.reshape(-1, 2)
     return trim_data(data)
+
+
+def load_data(fname, k=0):
+  """
+  input data:
+      paths: list of path nparrays
+      metas: list of meta lists
+      dests: list of dest nparrays
+  output data:
+      paths: nparray of shape [data_size, ***]
+      metas: nparray of shape [data_size, meta_size]
+      dests: nparray of shape [data_size, 2]
+      dts: list of str
+      full_paths: list of nparrays
+  """
+  data = pickle.load(open(fname, 'rb'))
+  paths, metas, dests = data['path'], data['meta'], data['dest']
+  full_paths, dts = data['full_path'], data['dt']
+
+  if k == 0: # RNN or NO PATH
+    def resize_by_padding(path, target_length):
+      """add zero padding AFTER the given path"""
+      path_length = path.shape[0]
+      pad_width = ((0, target_length - path_length), (0, 0))
+      return np.lib.pad(path, pad_width, 'constant', constant_values=0)
+    
+    max_length = max(p.shape[0] for p in paths)
+    paths = [resize_by_padding(p, max_length) for p in paths]
+    paths = np.stack(paths, axis=0)
+
+  else: # DNN
+    def resize_to_2k(path, k):
+      """remove middle portion of the given path (np array)"""
+        # When the prefix of the trajectory contains less than
+        # 2k points, the first and last k points overlap
+        # (De Brébisson, Alexandre, et al., 2015)
+      if len(path) < k: 
+        front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
+      else:
+        front_k, back_k = path[:k], path[-k:]
+      return np.concatenate([front_k, back_k], axis=0)
+
+    paths = [resize_to_2k(p, k) for p in paths]
+    paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
+  
+  metas, dests = np.array(metas), np.array(dests)
+
+  return paths, metas, dests, dts, full_paths
+
+
 
 
 def record_results(fname, model_id, data_size, global_step,
@@ -378,7 +395,7 @@ def visualize_pred_error(y_true, y_pred, model_id, save_dir='viz'):
     dx, dy = 0.1* (xmax - xmin), 0.1 * (ymax- ymin)
     ax.set_xlim([ymin - dy, ymax + dy])
     ax.set_ylim([xmin - dx, xmax + dx])
-    
+
     ax.scatter([x[1] for x in y_true], [x[0] for x in y_true], 
                 c='mediumblue', marker='.', label='true_destination', alpha=0.3, s=50, linewidths=3)
     ax.scatter([x[1] for x in y_pred], [x[0] for x in y_pred], 
@@ -395,7 +412,7 @@ def visualize_pred_error(y_true, y_pred, model_id, save_dir='viz'):
     ax_title = ax.set_title(title, fontsize=12)
     fig.subplots_adjust(top=0.8)
     plt.xlabel('longitude (translated)'); plt.ylabel('latitude (translated)')
-    
+
     # SAVE
     fname = os.path.join(save_dir, model_id + '.png')
     plt.savefig(fname); plt.close()

@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow.contrib import rnn
 
 from custom_loss import mean_squared_distance_loss, neg_log_likelihood_loss
-from custom_metric import summary_statistics_metric
+from custom_metric import summary_statistics_metric, weighted_mean_distance_metric
 
 
 def _variable_on_cpu(name, shape):
@@ -165,18 +165,25 @@ def model_fn(features, labels, mode, params):
 
   # LOSS for validation
   loss_val = mean_squared_distance_loss(labels_val, predictions_val, scope='loss_val')
-  
-  _mean, _std, _min, _max, _argmin, _argmax = summary_statistics_metric(labels, predictions)
 
-  # evaluation metric
-  eval_metric_ops = dict(
-      mean_distance=_mean,
-      std_distance=_std,
-      min_distance=_min,
-      max_distance=_max,
-      argmin_index=_argmin,
-      argmax_index=_argmax,
-  )
+
+  # Provide an estimator spec for `ModeKeys.EVAL`.
+  if mode == tf.estimator.ModeKeys.EVAL:
+    _mean, _std, _min, _max, _argmin, _argmax = summary_statistics_metric(labels, predictions)
+    weights = tf.constant(params['test_weight'], dtype=tf.float32)
+    _wmean = weighted_mean_distance_metric(labels, predictions, weights)
+    # evaluation metric
+    eval_metric_ops = dict(
+        mean_distance=_mean,
+        wmean_distance=_wmean,
+        # std_distance=_std,
+        # min_distance=_min,
+        # max_distance=_max,
+        argmin_index=_argmin,
+        argmax_index=_argmax,
+    )
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    eval_metric_ops = None
 
   # Provide an estimator spec for `ModeKeys.EVAL` and `ModeKeys.TRAIN` modes.
   return tf.estimator.EstimatorSpec(
