@@ -89,13 +89,13 @@ class Model(object):
 
 
     # Define loss
-    squared_distances = compute_km_distances(self.dest_t, self.pred_t)
+    distances = compute_km_distances(self.dest_t, self.pred_t)
+
     weights = self.loss_weight_t    # for weighted average
-    self.weighted_loss_t = tf.losses.compute_weighted_loss(squared_distances, weights, 
-                                                           scope='weighted_loss', 
-                                                           loss_collection=tf.GraphKeys.LOSSES)
+    self.weighted_loss_t = tf.reduce_sum(tf.multiply(distances , weights), name='weighted_loss')
+    tf.add_to_collection(tf.GraphKeys.LOSSES, self.weighted_loss_t)
     weights = 1.0
-    self.average_loss_t = tf.losses.compute_weighted_loss(squared_distances, weights, 
+    self.average_loss_t = tf.losses.compute_weighted_loss(distances, weights, 
                                                           scope='average_loss', 
                                                           loss_collection=None)
 
