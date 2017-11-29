@@ -1,14 +1,15 @@
 import os
 import time
 
+import numpy as np
 import tensorflow as tf
-from sklearn.cluster import MeanShift
 
 from log import log
 from utils import maybe_exist
 from tf_utils import (BatchGenerator, 
                       NeighborWeightCalculator, 
-                      compute_km_distances)
+                      compute_km_distances,
+                      ModifiedMeanShift)
 from graph import (extract_feature)
 
 # FLAGS to be applied across related modules
@@ -34,14 +35,21 @@ class Model(object):
                                                     reference_points=dest_trn)
     # Find centroids of destinations
     if FLAGS.cband > 0:
-      self.clustering = MeanShift(bandwidth=FLAGS.cband).fit(dest_trn)
+      self.clustering = ModifiedMeanShift(bandwidth=FLAGS.cband, min_freq=5).fit(dest_trn)
       self.centroids = self.clustering.cluster_centers_
+
+      cluster_labels = self.clustering.predict(dest_trn) # starting from 0
+      self.cluster_counts = np.bincount(cluster_labels)
+      print(self.cluster_counts)
+
       print('cband=%f, #cluster=%d' %(FLAGS.cband, len(self.centroids)))
 
     else:
       self.centroids = None
 
+
   def build_graph(self):
+
     # Parameters
     learning_rate = FLAGS.learning_rate
 
@@ -63,9 +71,12 @@ class Model(object):
     self.meta_t = tf.placeholder(dtype=tf.int32, 
                                  shape=[None, 4], 
                                  name='meta_placeholder')
-    self.dest_t = tf.placeholder(dtype=tf.float32, 
+    self.dest_t = tf.placeholder(dtype=tf.float32, # for prediction
                                  shape=[None, 2], 
                                  name='dest_placeholder')
+    self.label_t = tf.placeholder(dtype=tf.float32, # for classification
+                                 shape=[None, ], 
+                                 name='label_placeholder')
     self.loss_weight_t = tf.placeholder(dtype=tf.float32,
                                         shape=[None, ],
                                         name='loss_weight_placeholder')
@@ -75,38 +86,59 @@ class Model(object):
 
     # Stack the last layer 
     # to predict or clssify the final destination
-    if self.centroids is not None:
-      centroids_t = tf.constant(self.centroids,
-                                dtype=tf.float32, 
-                                name='centroids_constant')
-      probs_t = tf.layers.dense(feature_t, len(self.centroids), 
-                                activation=tf.nn.softmax, 
-                                name='cluster_probs')
-      self.pred_t = tf.nn.xw_plus_b(probs_t, centroids_t, [0., 0.], name='final')
 
+    # Classification
+    if FLAGS.classification is True:
+      self.logit_t = tf.layers.dense(feature_t, len(self.centroids), 
+                                     activation=None, name='logit')
+      self.label_t = tf.to_int32(self.label_t)
+
+      label_weight = tf.constant(1 / self.cluster_counts, 
+                                 dtype=tf.float32, name='label_weight')
+      batch_weight = tf.nn.embedding_lookup(label_weight, self.label_t, name='loss_weight')
+
+      xe_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_t,
+                                                                 logits=self.logit_t,
+                                                                 name='xe_losses')
+      weighted_xe_losses = tf.multiply(xe_losses, batch_weight, name='weighted_xe_losses')
+      self.xe_loss_t = tf.reduce_mean(xe_losses, name='xentropy_mean')
+      tf.add_to_collection(tf.GraphKeys.LOSSES, self.xe_loss_t)
+
+    # Prediction
     else:
-      self.pred_t = tf.layers.dense(feature_t, 2, activation=None, name='fianl')
+      # centroids-weighted prediction
+      if self.centroids is not None:
+          centroids_t = tf.constant(self.centroids,
+                                    dtype=tf.float32, 
+                                    name='centroids_constant')
+          probs_t = tf.layers.dense(feature_t, len(self.centroids), 
+                                    activation=tf.nn.softmax, 
+                                    name='cluster_probs')
+          self.pred_t = tf.nn.xw_plus_b(probs_t, centroids_t, [0., 0.], name='final')
 
+      # Direct prediction
+      else:
+        self.pred_t = tf.layers.dense(feature_t, 2, activation=None, name='fianl')
 
-    # Define loss
-    squared_distances = compute_km_distances(self.dest_t, self.pred_t)
-    weights = self.loss_weight_t    # for weighted average
-    self.weighted_loss_t = tf.losses.compute_weighted_loss(squared_distances, weights, 
-                                                           scope='weighted_loss', 
-                                                           loss_collection=tf.GraphKeys.LOSSES)
-    weights = 1.0
-    self.average_loss_t = tf.losses.compute_weighted_loss(squared_distances, weights, 
-                                                          scope='average_loss', 
-                                                          loss_collection=None)
+      # Define prediction loss
+      squared_distances = compute_km_distances(self.dest_t, self.pred_t)
+      weights = self.loss_weight_t    # for weighted average
+      self.weighted_loss_t = tf.losses.compute_weighted_loss(squared_distances, weights, 
+                                                            scope='weighted_loss', 
+                                                            loss_collection=tf.GraphKeys.LOSSES)
+      weights = 1.0
+      self.average_loss_t = tf.losses.compute_weighted_loss(squared_distances, weights, 
+                                                            scope='average_loss', 
+                                                            loss_collection=None)
 
     # Gather all losses
     losses = tf.get_collection(tf.GraphKeys.LOSSES)
-    losses += tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    # losses += tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     self.loss_t = tf.add_n(losses, name='training_loss')
 
     # Training Op.
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    self.train_op = optimizer.minimize(loss=self.weighted_loss_t, 
+    self.train_op = optimizer.minimize(loss=self.loss_t, 
                                        global_step=tf.train.get_global_step())
 
     # Initializing Op.
@@ -197,10 +229,16 @@ class Model(object):
 
     # Define feed_dict for validation and early stopping
     loss_weights_val = self.loss_weight_gen.get_neighbor_weight(dest_val)
-    feed_dict_val = {self.path_t: path_val, 
-                     self.meta_t: meta_val, 
-                     self.dest_t: dest_val,
-                     self.loss_weight_t: loss_weights_val}
+    if FLAGS.classification:
+      label_val = self.clustering.predict(dest_val)#.astype(np.int32)
+      feed_dict_val = {self.path_t: path_val, 
+                       self.meta_t: meta_val, 
+                       self.label_t: label_val}
+    else:
+      feed_dict_val = {self.path_t: path_val, 
+                       self.meta_t: meta_val, 
+                       self.dest_t: dest_val,
+                       self.loss_weight_t: loss_weights_val}
 
     # And then after everything is built, start the training loop.
     try:
@@ -215,12 +253,20 @@ class Model(object):
 
         # Run one step of the model.
         this_path, this_meta, this_dest = trn_batch_generator.next_batch()
-        loss_weights = self.loss_weight_gen.get_neighbor_weight(this_dest)
-        feed_dict = {self.path_t: this_path, 
-                     self.meta_t: this_meta, 
-                     self.dest_t: this_dest,
-                     self.loss_weight_t: loss_weights}
-        _, train_loss = self.sess.run([self.train_op, self.loss_t], feed_dict=feed_dict)
+        if FLAGS.classification:
+          this_label = self.clustering.predict(this_dest)
+          # print(this_label, this_label.dtype, len(this_label), np.max(this_label))
+          feed_dict = {self.path_t: this_path, 
+                      self.meta_t: this_meta, 
+                      self.label_t: this_label}
+          _, train_loss = self.sess.run([self.train_op, self.loss_t], feed_dict=feed_dict)
+        else:
+          loss_weights = self.loss_weight_gen.get_neighbor_weight(this_dest)
+          feed_dict = {self.path_t: this_path, 
+                      self.meta_t: this_meta, 
+                      self.dest_t: this_dest,
+                      self.loss_weight_t: loss_weights}
+          _, train_loss = self.sess.run([self.train_op, self.loss_t], feed_dict=feed_dict)
         step = self.latest_step
 
         # Time consumption summaries
@@ -261,12 +307,24 @@ class Model(object):
         print('\n>> Training stopped by user!')
 
 
-  def predict(self, path, meta):
+  def predict(self, path, meta, dest):
     """return destination predicted by this model"""
     assert self.latest_checkpoint is not None
 
-    feed_dict = {self.path_t: path, self.meta_t: meta}
-    pred_v = self.sess.run(self.pred_t, feed_dict=feed_dict)
+    if FLAGS.classification:
+      label = self.clustering.predict(dest)
+      feed_dict = {self.path_t: path,
+                   self.meta_t: meta, 
+                   self.label_t: label}
+      logit_v = self.sess.run(self.logit_t, feed_dict=feed_dict)
+
+      argmax_cluster = np.argmax(logit_v, axis=1)
+      pred_v = self.centroids[argmax_cluster]
+    
+    else:
+
+      feed_dict = {self.path_t: path, self.meta_t: meta}
+      pred_v = self.sess.run(self.pred_t, feed_dict=feed_dict)
     
     return pred_v
 
@@ -275,14 +333,23 @@ class Model(object):
     """return evaluation mectrics calculated by this model for the given dataset
     """
     assert self.latest_checkpoint is not None
+    if FLAGS.classification:
+      pred = self.predict(path, meta, dest)
 
-    loss_weights = self.loss_weight_gen.get_neighbor_weight(dest)
-    feed_dict = {self.path_t: path, 
-                 self.meta_t: meta, 
-                 self.dest_t: dest,
-                 self.loss_weight_t: loss_weights}
-    return self.sess.run([self.average_loss_t, self.weighted_loss_t], 
-                         feed_dict=feed_dict)
+      # 
+      anomaly_mask = (self.clustering.predict(dest) == 0).astype(np.float32).reshape(-1, 1)
+      pred = np.multiply(1 - anomaly_mask, pred) + np.multiply(anomaly_mask, dest)
+
+      from utils import dist
+      return dist(pred, dest, to_km=True), dist(pred, dest, to_km=True)
+    else:
+      loss_weights = self.loss_weight_gen.get_neighbor_weight(dest)
+      feed_dict = {self.path_t: path, 
+                  self.meta_t: meta, 
+                  self.dest_t: dest,
+                  self.loss_weight_t: loss_weights}
+      return self.sess.run([self.average_loss_t, self.weighted_loss_t], 
+                          feed_dict=feed_dict)
 
 
   def close_session(self):

@@ -59,7 +59,7 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
   # Define model dir
   model_dir = os.path.join(MODEL_DIR, 
                            'dest_type_%d' % dest_term, 
-                           'car_%03d' % car_id,
+                           'car_{}'.format(car_id),
                            'proportion_%.1f' % proportion, 
                            FLAGS.model_type,
                            model_id)
@@ -102,10 +102,10 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
   # TEST EVALUATION PART
   # Visualize the test evaluation results
   if FLAGS.n_save_viz > 0:
-    pred_trn = model.predict(path_trn, meta_trn)
-    pred_tst = model.predict(path_tst, meta_tst)
+    pred_trn = model.predict(path_trn, meta_trn, dest_trn)
+    pred_tst = model.predict(path_tst, meta_tst, dest_tst)
 
-    # Define plat and add training points
+    # Define plot and add training points
     myplot = ResultPlot()
     if proportion > 0:
       myplot.add_point(
@@ -114,6 +114,9 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
     myplot.add_point(
           dest_trn, label=None,
           color='gray', marker='.', s=10, alpha=1, must_contain=False)
+    myplot.add_point(
+          model.centroids, label=None,
+          color='green', marker='x', s=10, alpha=1, must_contain=False)
 
     for i in range(pred_tst.shape[0]):
       difference = np.stack([dest_tst[i], pred_tst[i]], axis=0)
@@ -126,19 +129,22 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
       myplot.add_tmp_point(
           pred_tst[i], label=None,
           color='crimson', marker='*', s=100, alpha=1, must_contain=True)
-    dist_km = dist(dest_tst, pred_tst, to_km=True)
+    
+    dist_km, _ = model.eval_metrics(path_tst, meta_tst, dest_tst)
+    print('------Error (tst): ', dist_km, 'km')
 
     # Define details to save plot
     save_dir = os.path.join(VIZ_DIR, 
                             'path_and_prediction', 
                             'dest_term_%d' % dest_term, 
-                            'car_%03d' % car_id)
+                            'car_{}'.format(car_id))
     fname = model_id[8:] + '.png'
     title = '{fname}\ndist={dist_km}km'
     title = title.format(fname=fname,
                          dist_km='N/A' if dist_km is None else '%.1f' % dist_km)
     myplot.draw_and_save(title, save_dir, fname)
 
+    # Individual visualizations
     for i in range(n_save_viz):
       myplot.add_tmp_path(
             full_path_tst[i], label=None,
@@ -173,7 +179,7 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
       save_dir = os.path.join(VIZ_DIR, 
                               'path_and_prediction', 
                               'dest_term_%d' % dest_term, 
-                              'car_%03d' % car_id, 
+                              'car_{}'.format(car_id), 
                               'start_%s' % start_time)
       fname = model_id[8:] + '.png'
       title = '{datetime}\n{fname}\ndist={dist_km}km'
@@ -210,7 +216,8 @@ def main(_):
   #   4:[61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, ],
   #   5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
   # }[FLAGS.car_group]
-  car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
+#   car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
+  car_id_list = ['KMH', 5, 100, 29, 72, 50, 15, 9, 74]
 
   # input path specification
   proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8]
@@ -218,7 +225,7 @@ def main(_):
   # Used for loading data and building graph
   use_meta_list = [True, False]
   k_list = [5] if FLAGS.model_type == 'dnn' else [0]
-  path_embedding_dim_list = [50]
+  path_embedding_dim_list = [50] if FLAGS.path_embedding_dim is None else [FLAGS.path_embedding_dim]
 
   n_hidden_layer_list = [2]
 
@@ -420,6 +427,14 @@ if __name__ == "__main__":
       default=5)
 
   parser.add_argument(
+      '--classification', 
+      type=bool, 
+      nargs='?',
+      default=False, #default
+      const=True, #if the arg is given
+      help='save record or not')
+
+  parser.add_argument(
       '--path_dim', 
       type=int, 
       default=None)
@@ -437,6 +452,7 @@ if __name__ == "__main__":
   FLAGS.gpu_allow_growth = args.gpu_allow_growth
 
   # MODEL PARAMS
+  FLAGS.classification = args.classification
   FLAGS.model_type = args.model_type
   FLAGS.bi_direction = args.bi_direction # RNN only
   FLAGS.max_length= 300 # RNN only
