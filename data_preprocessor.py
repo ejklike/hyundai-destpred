@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from utils import get_pkl_file_name, convert_str_to_time
+from utils import get_pkl_file_name, convert_str_to_time, maybe_exist
 
 DATA_DIR = './data'
 HOLIDAY_JSON_FNAME = 'kor_event_days.json'
@@ -116,6 +116,7 @@ class DataPreprocessor(object):
     def __init__(self, to_dir):
         self.from_dir = DATA_DIR
         self.to_dir = to_dir
+        maybe_exist(self.to_dir)
         self._meta_handler = MetaHandler(HOLIDAY_JSON_FNAME)
         print(self._meta_handler.holiday_date_set)
 
