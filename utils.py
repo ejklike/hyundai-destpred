@@ -40,6 +40,7 @@ def get_pkl_file_name(car_id, proportion, dest_term, train=True):
 
 
 def dist(x, y, to_km=False, std=False):
+    assert x.shape == y.shape
     rad_to_km = np.array([111.0, 88.8])
 
     x, y = np.array(x).reshape(-1, 2), np.array(y).reshape(-1, 2)
