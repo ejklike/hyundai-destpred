@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow as tf
 from sklearn.neighbors import radius_neighbors_graph
 
-
 class NeighborWeightCalculator(object):
 
   def __init__(self, radius=5, reference_points=None):
@@ -28,7 +27,7 @@ class NeighborWeightCalculator(object):
                                                   include_self=True, # contain myself
                                                   # weighted distance
                                                   metric='wminkowski', 
-                                                  metric_params={'w': [88.8**2, 111.0**2]},
+                                                  metric_params={'w': [88.8, 111.0]},
                                                   p=2).toarray()
       # get only [trn_tst] part and apply reduce_sum to count all neighbors
       counts = np.sum(connectivity_matrix[:self.num_ref, self.num_ref:], axis=0)
@@ -45,19 +44,10 @@ class BatchGenerator(object):
     self.batch_size = batch_size
     self.epoch = epoch
     self.data_size = data_list[0].shape[0]
-    self.data_list = [np.concatenate([data, data], axis=0) for data in data_list]
+    self.data_list = data_list
 
   def next_batch(self):
-    if (self.epoch is not None) and (self.counter > self.data_size * self.epoch):
-      raise tf.errors.OutOfRangeError('OutOfRange ERROR!')
-
-    next_pointer = self.pointer + self.batch_size
-
-    batch_list = [data[self.pointer:next_pointer] for data in self.data_list]
-    self.counter += (next_pointer - self.pointer)
-    self.pointer = (next_pointer) % self.data_size
-
-    return batch_list
+    return self.data_list
 
 
 def compute_km_distances(dest1, dest2, name=None):
