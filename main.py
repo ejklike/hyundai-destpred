@@ -1,6 +1,7 @@
 import argparse
 from itertools import product
 import os
+from datetime import datetime
 
 import numpy as np
 
@@ -18,6 +19,7 @@ from utils import (get_pkl_file_name,
                    flat_and_trim_data,
                    trim_data,
                   )
+from clustering import plot_xy_with_label
 
 # Data dir
 DATA_DIR = './data_pkl'
@@ -82,28 +84,41 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
   # TEST EVALUATION PART
   # Save the test evaluation results
   if FLAGS.record:
-    log.info('save the results to %s', RECORD_FNAME)
     global_step = model.latest_step
-    loss_m_trn, loss_w_trn = model.eval_metrics(path_trn, meta_trn, dest_trn)
-    loss_m_tst, loss_w_tst = model.eval_metrics(path_tst, meta_tst, dest_tst)
-    print(loss_m_trn, loss_w_trn)
-    print(loss_m_tst, loss_w_tst)
+    # loss_m_trn, loss_w_trn = model.eval_metrics(path_trn, meta_trn, dest_trn)
+    # loss_m_tst, loss_w_tst = model.eval_metrics(path_tst, meta_tst, dest_tst)
+    # print(loss_m_trn, loss_w_trn)
+    # print(loss_m_tst, loss_w_tst)
     recorder = Recorder(RECORD_FNAME)
-    recorder.append_values([model_id, 
+    # recorder.append_values([model_id, 
+    #                         len(path_trn), 
+    #                         len(path_tst), 
+    #                         global_step,
+    #                         loss_m_trn, 
+    #                         loss_w_trn, 
+    #                         loss_m_tst, 
+    #                         loss_w_tst])
+    recorder.append_values([datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            model_id, 
                             len(path_trn), 
                             len(path_tst), 
-                            global_step,
-                            loss_m_trn, 
-                            loss_w_trn, 
-                            loss_m_tst, 
-                            loss_w_tst])
+                            global_step])
+    recorder.append_values(model.eval_metrics(path_trn, meta_trn, dest_trn))
+    recorder.append_values(model.eval_metrics(path_tst, meta_tst, dest_tst))
     recorder.next_line()
+    log.info('save the results to %s', RECORD_FNAME)
   
   # TEST EVALUATION PART
   # Visualize the test evaluation results
   if FLAGS.n_save_viz > 0:
-    pred_trn = model.predict(path_trn, meta_trn, dest_trn)
+    # pred_trn = model.predict(path_trn, meta_trn, dest_trn)
     pred_tst = model.predict(path_tst, meta_tst, dest_tst)
+    print('----------------------------------------------')
+
+    # filter_idxs = np.sum(pred_tst, axis=1) != 0
+    # print(filter_idxs)
+    # pred_tst_filtered = pred_tst[filter_idxs]
+    # dest_tst_filtered = dest_tst[filter_idxs]
 
     # Define plot and add training points
     myplot = ResultPlot()
@@ -115,7 +130,7 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
           dest_trn, label=None,
           color='gray', marker='.', s=10, alpha=1, must_contain=False)
     myplot.add_point(
-          model.centroids, label=None,
+          model.cluster_centers_, label=None,
           color='green', marker='x', s=10, alpha=1, must_contain=False)
 
     for i in range(pred_tst.shape[0]):
@@ -129,8 +144,8 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
       myplot.add_tmp_point(
           pred_tst[i], label=None,
           color='crimson', marker='*', s=100, alpha=1, must_contain=True)
-    
-    dist_km, _ = model.eval_metrics(path_tst, meta_tst, dest_tst)
+
+    dist_km = dist(dest_tst, pred_tst, to_km=True)
     print('------Error (tst): ', dist_km, 'km')
 
     # Define details to save plot
@@ -138,11 +153,17 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
                             'path_and_prediction', 
                             'dest_term_%d' % dest_term, 
                             'car_{}'.format(car_id))
-    fname = model_id[8:] + '.png'
+    fname = model_id[9:] + '.png'
     title = '{fname}\ndist={dist_km}km'
     title = title.format(fname=fname,
                          dist_km='N/A' if dist_km is None else '%.1f' % dist_km)
     myplot.draw_and_save(title, save_dir, fname)
+
+    if proportion == 0:
+        fname = 'cluster_car{}_bw_{}'.format(car_id, FLAGS.cband) + '.png'
+        plot_xy_with_label(dest_trn, model.clustering.predict(dest_trn), model.cluster_centers_,
+                        save_dir=save_dir, fname=fname)
+
 
     # Individual visualizations
     for i in range(n_save_viz):
@@ -156,7 +177,7 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
             input_path1, label='input_path', 
             color='mediumblue', marker='.', must_contain=True)
         myplot.add_tmp_path(
-            input_path2, label='input_path', 
+            input_path2, label=None, 
             color='mediumblue', marker='.', must_contain=True)
       elif FLAGS.model_type == 'rnn':
         input_path = trim_data(path_tst[i])
@@ -217,7 +238,7 @@ def main(_):
   #   5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
   # }[FLAGS.car_group]
 #   car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
-  car_id_list = ['KMH', 5, 100, 29, 72, 50, 15, 9, 74]
+  car_id_list = [5] # [5, 100, 29, 72, 50, 15, 9, 74, 'KMH']
 
   # input path specification
   proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8]
@@ -262,7 +283,7 @@ def main(_):
         '{meta}{model}_{edim}x{layer}'.format(
             meta='M' if use_meta is True else 'X',
             model=('B' if FLAGS.bi_direction else FLAGS.model_type[0].upper()) 
-                  if proportion > 0 else '_',
+                  if proportion > 0 else 'X',
             edim=path_embedding_dim,
             layer=n_hidden_layer),
         'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
@@ -427,14 +448,6 @@ if __name__ == "__main__":
       default=5)
 
   parser.add_argument(
-      '--classification', 
-      type=bool, 
-      nargs='?',
-      default=False, #default
-      const=True, #if the arg is given
-      help='save record or not')
-
-  parser.add_argument(
       '--path_dim', 
       type=int, 
       default=None)
@@ -452,7 +465,6 @@ if __name__ == "__main__":
   FLAGS.gpu_allow_growth = args.gpu_allow_growth
 
   # MODEL PARAMS
-  FLAGS.classification = args.classification
   FLAGS.model_type = args.model_type
   FLAGS.bi_direction = args.bi_direction # RNN only
   FLAGS.max_length= 300 # RNN only
