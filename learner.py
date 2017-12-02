@@ -126,7 +126,7 @@ class Model(object):
 
     # Gather all losses
     losses = tf.get_collection(tf.GraphKeys.LOSSES)
-    # losses += tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    losses += tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     self.loss_t = tf.add_n(losses, name='training_loss')
 
     # Training Op.

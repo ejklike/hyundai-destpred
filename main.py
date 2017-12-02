@@ -102,7 +102,8 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
                             model_id, 
                             len(path_trn), 
                             len(path_tst), 
-                            global_step])
+                            global_step,
+                            model.clustering.n_cluster_])
     recorder.append_values(model.eval_metrics(path_trn, meta_trn, dest_trn))
     recorder.append_values(model.eval_metrics(path_tst, meta_tst, dest_tst))
     recorder.next_line()
@@ -238,7 +239,7 @@ def main(_):
   #   5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
   # }[FLAGS.car_group]
 #   car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
-  car_id_list = [5] # [5, 100, 29, 72, 50, 15, 9, 74, 'KMH']
+  car_id_list = [5, 100, 29, 72, 50, 15, 9, 74, 'KMH']
 
   # input path specification
   proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8]
@@ -286,8 +287,8 @@ def main(_):
                   if proportion > 0 else 'X',
             edim=path_embedding_dim,
             layer=n_hidden_layer),
-        'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
-        'cband_{}'.format(FLAGS.cband),
+        # 'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
+        'bw_{}'.format(FLAGS.cband),
         # some details
     ]
     model_id = '__'.join(id_components)
