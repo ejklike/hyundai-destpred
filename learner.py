@@ -92,9 +92,9 @@ class Model(object):
     self.label_t = tf.to_int32(self.label_t)
 
     # # losses: [batch_size, ]
-    # xe_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_t,
-    #                                                            logits=self.logit_t,
-    #                                                            name='xe_losses')
+    xe_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_t,
+                                                               logits=self.logit_t,
+                                                               name='xe_losses')
 
 
     # original
