@@ -29,12 +29,13 @@ def convert_time_for_fname(date_time):
     return date_time.strftime('%Y%m%d_%H%M%S')
 
 
-def get_pkl_file_name(car_id, proportion, dest_term, train=True):
-    base_str = '{train}_{car_id}_proportion_{proportion}_y_{dest_type}.p'
+def get_pkl_file_name(car_id, case, dest_term, method, train=True):
+    base_str = '{train}_{car_id}_{method}_{case}_y_{dest_type}.p'
     file_name = base_str.format(
         train='train' if train else 'test',
         car_id='VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
-        proportion=int(proportion * 100) if proportion > 0 else 20,
+        method=method,
+        case=int(case * 100) if method == 'proportion' else case,
         dest_type=dest_term)
     return file_name
 

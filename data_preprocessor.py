@@ -9,12 +9,14 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from log import log
 from utils import get_pkl_file_name, convert_str_to_time, maybe_exist
 
 DATA_DIR = './data'
 HOLIDAY_JSON_FNAME = 'kor_event_days.json'
 INPUT_DATA_EXT = '.csv'
 OUTPUT_DATA_EXT = '.p'
+
 
 def global_latitude_convertor(x):
     if abs(x) > 500:
@@ -31,20 +33,19 @@ def global_longitude_convertor(y):
 
 
 class MetaHandler(object):
-
     def __init__(self, event_data_fname):
         self.holiday_date_set = self._load_holiday_set(event_data_fname)
-        
+
     def _load_holiday_set(self, fname):
         with codecs.open(fname, 'rb', encoding='utf-8') as fp:
             lines = fp.read()
         event_days = json.loads(lines)['results']
-        
+
         def _date_from_day_dict(day_dict):
             year, month, day = int(day_dict['year']), int(day_dict['month']), int(day_dict['day'])
             return date(year, month, day)
 
-        return set( # h: 법정공휴일, i: 대체 공휴일
+        return set(  # h: 법정공휴일, i: 대체 공휴일
             _date_from_day_dict(day) for day in event_days if day['type'] in ['h', 'i'])
 
     def _event_chk(self, start_dt):
@@ -55,38 +56,37 @@ class MetaHandler(object):
 
     def _week_chk(self, start_dt):
         return start_dt.weekday()
-    
+
     def _week_num_chk(self, start_dt):
         # Monday : 0 ~ Sunday : 6
         return start_dt.isocalendar()[1]
-    
+
     def convert_to_meta(self, start_dt):
         """
         input: start_dt ; 2006-01-10 13:56:16
         output: meta data list [공휴일, 요일, 시간대, 주차]
         """
         start_dt = convert_str_to_time(start_dt)
-        print(start_dt)
-        
+        # print(start_dt)
+
         return [self._event_chk(start_dt), self._week_num_chk(start_dt),
                 self._hour_chk(start_dt), self._week_chk(start_dt)]
 
 
 class Path(object):
-
     def __init__(self, car_id, start_dt):
         self.car_id = car_id
         self.start_dt = start_dt
         self.xy_list = []
         self.link_id_list = []
-    
+
     def add_point(self, x, y, link_id):
         self.xy_list.append([x, y])
         self.link_id_list.append(link_id)
 
-    def get_partial_path_and_short_term_dest(self, 
-                                             proportion_of_path, 
-                                             short_term_pred_min=5):
+    def get_path_based_on_proportion_and_short_term_dest(self,
+                                                         proportion_of_path,
+                                                         short_term_pred_min=5):
         path_length = len(self.xy_list)
         partial_path_length = int(path_length * proportion_of_path)
 
@@ -107,31 +107,53 @@ class Path(object):
         else:
             return None
 
+    def get_path_based_on_minute_and_short_term_dest(self,
+                                                     minute_from_departure,
+                                                     short_term_pred_min=5):
+        path_length = len(self.xy_list)
+        partial_path_length = minute_from_departure * 2
+
+        if short_term_pred_min == 0:
+            short_term_dest_idx = -1
+            is_valid_dest = partial_path_length < path_length
+        else:
+            short_term_dest_idx = partial_path_length + short_term_pred_min * 2
+            is_valid_dest = short_term_dest_idx < path_length
+
+        if is_valid_dest:
+            partial_path = np.array(
+                self.xy_list[:partial_path_length])
+            short_term_dest = np.array(
+                self.xy_list[short_term_dest_idx])
+            return partial_path, short_term_dest
+        else:
+            return None
+
     def get_meta_feature(self, meta_handler):
         return meta_handler.convert_to_meta(self.start_dt)
 
 
 class DataPreprocessor(object):
-
-    def __init__(self, to_dir):
+    def __init__(self, data_num, to_dir):
+        self.data_num = data_num
         self.from_dir = DATA_DIR
         self.to_dir = to_dir
         maybe_exist(self.to_dir)
         self._meta_handler = MetaHandler(HOLIDAY_JSON_FNAME)
-        print(self._meta_handler.holiday_date_set)
-
 
     def _load_and_parse_data(self):
         header = ['car_id', 'start_dt', 'seq_id', 'x', 'y', 'link_id']
         df = pd.read_csv(self.from_path, header=None,
-                           delimiter=',', names=header, low_memory=False, 
-                           dtype={'link_id': str})
-        
+                         delimiter=',', names=header, low_memory=False,
+                         dtype={'link_id': str})
+
+        print("Use {} data for preprocessing.".format(self.data_num))
+
         paths_by_car = dict()
 
-        prev_car_id, prev_start_dt = '', 0
+        prev_car_id, prev_start_dt, cnt_path = '', 0, 0
         for i, row in enumerate(df.itertuples()):
-            # filter 
+            # filter
             if len(row) < 6 + 1:  # column_size + index
                 print('Pass the {}-th row : '.format(i), row)
                 continue
@@ -139,11 +161,20 @@ class DataPreprocessor(object):
             is_new_car = prev_car_id != row.car_id
             is_new_path = prev_start_dt != row.start_dt
 
+            if self.data_num != 'all':
+                is_cnt_path_limit = cnt_path == self.data_num
+                if is_cnt_path_limit:
+                    if not is_new_car:
+                        prev_car_id, prev_start_dt = row.car_id, row.start_dt
+                        continue
+                    cnt_path = 0
+
             if is_new_car:
                 paths_by_car[row.car_id] = list()
             if is_new_path:
                 new_path = Path(row.car_id, row.start_dt)
                 paths_by_car[row.car_id].append(new_path)
+                cnt_path += 1
 
             this_path = paths_by_car[row.car_id][-1]
             # scaling x and y to the original scale of latitude and longitude system
@@ -160,10 +191,9 @@ class DataPreprocessor(object):
         print('')
         return paths_by_car
 
+    def process_and_save(self, data_fname, method):
 
-    def process_and_save(self, data_fname):
-
-        print('Starting data preprocessing.')
+        print('Start data preprocessing.')
         self.from_path = os.path.join(self.from_dir, data_fname)
         self.pkl_fname = data_fname.replace(INPUT_DATA_EXT, OUTPUT_DATA_EXT)
 
@@ -178,14 +208,16 @@ class DataPreprocessor(object):
         else:
             print('Use existing pkl file that already parsed.')
             paths_by_car = pickle.load(open(tmp_pkl_file, 'rb'))
-            
 
         proportion_of_path_list = [0.2, 0.4, 0.6, 0.8]
-        short_term_pred_min_list = [0, 5] # 0 for final destination
+        minute_from_departure_list = [10, 20, 30, 40, 50]
+        short_term_pred_min_list = [0, 5]  # 0 for final destination
         train_ratio = 0.8
 
         # preprocess and save
+        print("Preprocessing based on {}.".format(method))
         for car_id, paths in tqdm(paths_by_car.items()):
+            car_id = 'KMH' if car_id == 'KMHFR412BGA011216' else car_id
 
             # delete the initial point
             for path in paths:
@@ -194,48 +226,98 @@ class DataPreprocessor(object):
             # exclude too short path
             paths = [path for path in paths if len(path.xy_list) >= 10]
 
-            for proportion, dest_term in product(proportion_of_path_list, 
-                                                 short_term_pred_min_list):
-                # data to save
-                full_path_list, path_list, meta_list, dest_list, dt_list = [], [], [], [], []
+            if method == 'proportion':
+                for proportion, dest_term in product(proportion_of_path_list,
+                                                     short_term_pred_min_list):
+                    # data to save
+                    full_path_list, path_list, meta_list, dest_list, dt_list = [], [], [], [], []
 
-                for path in paths:
-                    result = path.get_partial_path_and_short_term_dest(
-                        proportion, dest_term)
+                    for path in paths:
+                        result = path.get_path_based_on_proportion_and_short_term_dest(
+                            proportion, dest_term)
 
-                    if result is not None:
-                        partial_path, short_term_dest = result
-                        meta_feature = path.get_meta_feature(self._meta_handler)
+                        if result is not None:
+                            partial_path, short_term_dest = result
+                            meta_feature = path.get_meta_feature(self._meta_handler)
 
-                        full_path_list.append(np.array(path.xy_list))
-                        path_list.append(partial_path)
-                        meta_list.append(meta_feature)
-                        dest_list.append(short_term_dest)
-                        dt_list.append(path.start_dt)
-                        # print(car_id, proportion, dest_term)
-                        # print(path.xy_list, partial_path, short_term_dest)
+                            full_path_list.append(np.array(path.xy_list))
+                            path_list.append(partial_path)
+                            meta_list.append(meta_feature)
+                            dest_list.append(short_term_dest)
+                            dt_list.append(path.start_dt)
+                            # print(car_id, proportion, dest_term)
+                            # print(path.xy_list, partial_path, short_term_dest)
 
-                # split data into train and test
-                data_size = len(path_list)
-                train_size = int(train_ratio * data_size)
+                    # split data into train and test
+                    data_size = len(path_list)
+                    train_size = int(train_ratio * data_size)
 
-                trn_data = dict(
-                    full_path=full_path_list[:train_size],
-                    path=path_list[:train_size],
-                    meta=meta_list[:train_size],
-                    dest=dest_list[:train_size],
-                    dt=dt_list[:train_size],
-                )
-                tst_data = dict(
-                    full_path=full_path_list[train_size:],
-                    path=path_list[train_size:],
-                    meta=meta_list[train_size:],
-                    dest=dest_list[train_size:],
-                    dt=dt_list[train_size:],
-                )
-                
-                # save the results
-                trn_fname = get_pkl_file_name(car_id, proportion, dest_term, train=True)
-                tst_fname = get_pkl_file_name(car_id, proportion, dest_term, train=False)
-                pickle.dump(trn_data, open(os.path.join(self.to_dir, trn_fname), 'wb'))
-                pickle.dump(tst_data, open(os.path.join(self.to_dir, tst_fname), 'wb'))
+                    trn_data = dict(
+                        full_path=full_path_list[:train_size],
+                        path=path_list[:train_size],
+                        meta=meta_list[:train_size],
+                        dest=dest_list[:train_size],
+                        dt=dt_list[:train_size],
+                    )
+                    tst_data = dict(
+                        full_path=full_path_list[train_size:],
+                        path=path_list[train_size:],
+                        meta=meta_list[train_size:],
+                        dest=dest_list[train_size:],
+                        dt=dt_list[train_size:],
+                    )
+
+                    # save the results
+                    trn_fname = get_pkl_file_name(car_id, proportion, dest_term, method=method, train=True)
+                    tst_fname = get_pkl_file_name(car_id, proportion, dest_term, method=method, train=False)
+                    pickle.dump(trn_data, open(os.path.join(self.to_dir, trn_fname), 'wb'))
+                    pickle.dump(tst_data, open(os.path.join(self.to_dir, tst_fname), 'wb'))
+
+            elif method == 'minute':
+                for minute, dest_term in product(minute_from_departure_list, short_term_pred_min_list):
+                    # data to save
+                    full_path_list, path_list, meta_list, dest_list, dt_list = [], [], [], [], []
+
+                    for path in paths:
+                        result = path.get_path_based_on_minute_and_short_term_dest(
+                            minute, dest_term)
+
+                        if result is not None:
+                            partial_path, short_term_dest = result
+                            meta_feature = path.get_meta_feature(self._meta_handler)
+
+                            full_path_list.append(np.array(path.xy_list))
+                            path_list.append(partial_path)
+                            meta_list.append(meta_feature)
+                            dest_list.append(short_term_dest)
+                            dt_list.append(path.start_dt)
+                            # print(car_id, proportion, dest_term)
+                            # print(path.xy_list, partial_path, short_term_dest)
+
+                    # split data into train and test
+                    data_size = len(path_list)
+                    train_size = int(train_ratio * data_size)
+
+                    trn_data = dict(
+                        full_path=full_path_list[:train_size],
+                        path=path_list[:train_size],
+                        meta=meta_list[:train_size],
+                        dest=dest_list[:train_size],
+                        dt=dt_list[:train_size],
+                    )
+                    tst_data = dict(
+                        full_path=full_path_list[train_size:],
+                        path=path_list[train_size:],
+                        meta=meta_list[train_size:],
+                        dest=dest_list[train_size:],
+                        dt=dt_list[train_size:],
+                    )
+
+                    # save the results
+                    trn_fname = get_pkl_file_name(car_id, minute, dest_term, method=method, train=True)
+                    tst_fname = get_pkl_file_name(car_id, minute, dest_term, method=method, train=False)
+                    pickle.dump(trn_data, open(os.path.join(self.to_dir, trn_fname), 'wb'))
+                    pickle.dump(tst_data, open(os.path.join(self.to_dir, tst_fname), 'wb'))
+
+            else:
+                log.error("Unavailable preprocessing method (available: proportion, minute)")
