@@ -2,52 +2,52 @@ import numpy as np
 import tensorflow as tf
 
 
-# class NeighborWeightCalculator(object):
+def trn_batch_generator(paths, metas, labels, batch_size=300, epoch=10000):
 
-#   def __init__(self, radius=5, reference_points=None):
-#     assert reference_points is not None
-#     # radius neighbor
-#     self.radius = radius
-#     # reference points to be counted
-#     self.ref_points = reference_points
-#     self.num_ref = len(reference_points)
+  label_sizes = np.bincount(labels)
+  n_labels = len(label_sizes)
+  label_idxs = [np.where(labels==i)[0] for i in range(n_labels)]
 
-#   def get_neighbor_weight(self, target_points):
-#     """ return a weight proportion to the number of neighbors
-#     input: the centers of radius_neighbors
-#     output: a weight (sum to 1)
-#     """
-#     if self.radius > 0:
-#       #         trn     tst
-#       # trn | trn_trn trn_tst |
-#       # tst | tst_trn tst_tst |
-#       dest_all = np.concatenate([self.ref_points, target_points], axis=0)
-#       connectivity_matrix = radius_neighbors_graph(dest_all, self.radius, 
-#                                                   mode='connectivity',
-#                                                   include_self=True, # contain myself
-#                                                   # weighted distance
-#                                                   metric='wminkowski', 
-#                                                   metric_params={'w': [88.8**2, 111.0**2]},
-#                                                   p=2).toarray()
-#       # get only [trn_tst] part and apply reduce_sum to count all neighbors
-#       counts = np.sum(connectivity_matrix[:self.num_ref, self.num_ref:], axis=0)
-#     else:
-#       counts = np.ones([target_points.shape[0],], dtype=np.int32)
-#     return counts / np.sum(counts)
+  batch_sizes = [label_sizes[i] if label_sizes[i] > 5 else 5 for i in range(n_labels)]
+  batch_sizes[0] += batch_size - np.sum(batch_sizes)
+
+  for i in range(epoch):
+
+    batch_paths_list = []
+    batch_metas_list = []
+    batch_labels_list = []
+
+    for j in range(n_labels):
+      this_label_idxs = np.random.choice(label_idxs[j], batch_sizes[j])
+      batch_paths_list.append(paths[this_label_idxs])
+      batch_metas_list.append(metas[this_label_idxs])
+      batch_labels_list.append(labels[this_label_idxs])
+
+    batch_paths = np.concatenate(batch_paths_list, axis=0)
+    batch_metas = np.concatenate(batch_metas_list, axis=0)
+    batch_labels = np.concatenate(batch_labels_list, axis=0)
+
+    yield batch_paths, batch_metas, batch_labels
 
 
 class BatchGenerator(object):
 
-  def __init__(self, data_list, batch_size, epoch=None):
-    self.pointer = 0
-    self.counter = 0
-    self.batch_size = batch_size
-    self.epoch = epoch
-    self.data_size = data_list[0].shape[0]
-    self.data_list = data_list
+  def __init__(self, data_list, batch_size=1000, epoch=10000):
+    paths, metas, labels = data_list
+    self.batch_generator = trn_batch_generator(paths, metas, labels, 
+                                               batch_size=batch_size, epoch=epoch)
 
   def next_batch(self):
-    return self.data_list
+    return next(self.batch_generator)
+
+
+# class BatchGenerator(object):
+
+#   def __init__(self, data_list, batch_size, epoch=None):
+#     self.data_list = data_list
+
+#   def next_batch(self):
+#     return self.data_list
 
 
 def compute_km_distances(dest1, dest2, name=None):

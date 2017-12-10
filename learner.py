@@ -72,9 +72,6 @@ class Model(object):
     self.meta_t = tf.placeholder(dtype=tf.int32, 
                                  shape=[None, 4], 
                                  name='meta_placeholder')
-    # self.dest_t = tf.placeholder(dtype=tf.float32, # for prediction
-    #                              shape=[None, 2], 
-    #                              name='dest_placeholder')
     self.label_t = tf.placeholder(dtype=tf.float32, # for classification
                                  shape=[None, ], 
                                  name='label_placeholder')
@@ -86,16 +83,14 @@ class Model(object):
     # to predict or clssify the final destination
 
     # CLASSIFICATION
-    # self.logit_t = tf.layers.dense(feature_t, 1 + self.clustering.n_cluster_, 
     self.logit_t = tf.layers.dense(feature_t, self.clustering.n_cluster_, 
                                     activation=None, name='logit')
     self.label_t = tf.to_int32(self.label_t)
 
-    # # losses: [batch_size, ]
+    # losses: [batch_size, ]
     xe_losses = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.label_t,
                                                                logits=self.logit_t,
                                                                name='xe_losses')
-
 
     # original
     batch_weight = 1.0      
@@ -112,7 +107,7 @@ class Model(object):
     # batch_label_weight = tf.nn.embedding_lookup(dist_mat_t, self.label_t, name='batch_label_weight')
     # one_hot_mask = tf.one_hot(tf.argmax(self.logit_t, axis=1), depth=self.clustering.n_cluster_)
     # batch_label_weight = tf.reduce_sum(tf.multiply(batch_label_weight, one_hot_mask), axis=1)
-    
+
     # for original and custom 1
     weighted_xe_losses = tf.multiply(xe_losses, batch_weight, name='weighted_xe_losses')
 
@@ -152,7 +147,7 @@ class Model(object):
 
   def init_or_restore_all_variables(self, restart=False):
     # Remove prev model or not
-    if restart is True and tf.gfile.Exists(self.model_dir):
+    if restart is True and self.latest_checkpoint is not None:
       log.warning('Delete prev model_dir: %s', self.model_dir)
       tf.gfile.DeleteRecursively(self.model_dir)
     
@@ -213,13 +208,16 @@ class Model(object):
     path_trn, path_val = path[:num_trn], path[num_trn:]
     meta_trn, meta_val = meta[:num_trn], meta[num_trn:]
     dest_trn, dest_val = dest[:num_trn], dest[num_trn:]
+    
+    # get clustering labels
+    label_trn = self.clustering.predict(dest_trn)
+    label_val = self.clustering.predict(dest_val)
 
     # Instantiate batch generator
-    trn_batch_generator = BatchGenerator([path_trn, meta_trn, dest_trn], batch_size)
+    trn_batch_generator = BatchGenerator([path_trn, meta_trn, label_trn], batch_size)
 
     # Define feed_dict for validation and early stopping
     # label_val = self.clustering.predict(dest_val) + 1
-    label_val = self.clustering.predict(dest_val)
     feed_dict_val = {self.path_t: path_val, 
                       self.meta_t: meta_val, 
                       self.label_t: label_val}
@@ -236,20 +234,18 @@ class Model(object):
         start_time = time.time()
 
         # Run one step of the model.
-        this_path, this_meta, this_dest = trn_batch_generator.next_batch()
-        # this_label = self.clustering.predict(this_dest) + 1
-        this_label = self.clustering.predict(this_dest)
+        this_path, this_meta, this_label = trn_batch_generator.next_batch()
         # print(this_label, this_label.dtype, len(this_label), np.max(this_label))
         feed_dict = {self.path_t: this_path, 
                     self.meta_t: this_meta, 
                     self.label_t: this_label}
         _, train_loss = self.sess.run([self.train_op, self.loss_t], feed_dict=feed_dict)
-        
+
         step = self.latest_step
 
         # Time consumption summaries
         duration = time.time() - start_time
-        examples_per_sec = batch_size / duration
+        examples_per_sec = this_label.shape[0] / duration
 
         # Write the summaries and print an overview fairly often.
         if step % log_freq == 0:
@@ -299,7 +295,6 @@ class Model(object):
     """return true and pred destination labels predicted by this model"""
     assert self.latest_checkpoint is not None
 
-    # label = self.clustering.predict(dest) + 1
     label = self.clustering.predict(dest)
     feed_dict = {self.path_t: path,
                   self.meta_t: meta, 

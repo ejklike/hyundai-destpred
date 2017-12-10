@@ -57,7 +57,10 @@ def dist(x, y, to_km=True, std=False):
 def resize_by_padding(path, target_length):
     """add zero padding AFTER the given path"""
     path_length = path.shape[0]
-    pad_width = ((0, target_length - path_length), (0, 0))
+    pad_len = target_length - path_length
+    # if pad_len < 0:
+        # pad_len = 0
+    pad_width = ((0, pad_len), (0, 0))
     return np.lib.pad(path, pad_width, 'constant', constant_values=0)
 
 
@@ -108,6 +111,10 @@ def load_data(fname, k=0, max_length=None):
     full_paths, dts = data['full_path'], data['dt']
 
     if k == 0: # RNN or NO PATH
+        max_len_of_this_dataset = max(len(p) for p in paths)
+        if max_len_of_this_dataset > max_length:
+            raise ValueError('Given MaxLen is not Enough. Given: {}, Now: {}'
+                             .format(max_length, max_len_of_this_dataset))
         paths = [resize_by_padding(p, max_length) for p in paths]
         paths = np.stack(paths, axis=0)
 
@@ -124,16 +131,18 @@ class Recorder(object):
 
     def __init__(self, fname):
         self.fname = fname
+        self.str_to_record = ''
 
     def append_values(self, values):
         with open(self.fname, 'a') as fout:
             base_str = '{},' * len(values)
-            fout.write(base_str.format(*values))
+            self.str_to_record += base_str.format(*values)
 
     def next_line(self):
         with open(self.fname, 'a') as fout:
-            fout.write('\n')
-
+            self.str_to_record += '\n'
+            fout.write(self.str_to_record)
+            self.str_to_record = ''
 
         # if not os.path.exists(fname):
         #     with open(fname, 'w') as fout:

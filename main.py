@@ -66,7 +66,15 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
                            FLAGS.model_type,
                            model_id)
   model = Model(model_dir)
-  FLAGS.train = FLAGS.train or model.latest_checkpoint is None
+#   FLAGS.train = FLAGS.train or model.latest_checkpoint is None
+
+  # IF CKPT EXISTS, THEN NO TRAIN!
+  if model.latest_checkpoint is not None:
+    FLAGS.train = FLAGS.restart = False
+    log.warning('CKPT EXISTS. NO TRAINING.')
+  else:
+    FLAGS.train = FLAGS.restart = True
+    log.info('CKPT DOES NOT EXISTS. DO TRAINING.')
 
   # Derive some prerequisites
   # - destination centroids, radius_negibors, ..
@@ -85,19 +93,7 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
   # Save the test evaluation results
   if FLAGS.record:
     global_step = model.latest_step
-    # loss_m_trn, loss_w_trn = model.eval_metrics(path_trn, meta_trn, dest_trn)
-    # loss_m_tst, loss_w_tst = model.eval_metrics(path_tst, meta_tst, dest_tst)
-    # print(loss_m_trn, loss_w_trn)
-    # print(loss_m_tst, loss_w_tst)
     recorder = Recorder(RECORD_FNAME)
-    # recorder.append_values([model_id, 
-    #                         len(path_trn), 
-    #                         len(path_tst), 
-    #                         global_step,
-    #                         loss_m_trn, 
-    #                         loss_w_trn, 
-    #                         loss_m_tst, 
-    #                         loss_w_tst])
     recorder.append_values([datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             model_id, 
                             len(path_trn), 
@@ -115,11 +111,6 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
     # pred_trn = model.predict(path_trn, meta_trn, dest_trn)
     pred_tst = model.predict(path_tst, meta_tst, dest_tst)
     print('----------------------------------------------')
-
-    # filter_idxs = np.sum(pred_tst, axis=1) != 0
-    # print(filter_idxs)
-    # pred_tst_filtered = pred_tst[filter_idxs]
-    # dest_tst_filtered = dest_tst[filter_idxs]
 
     # Define plot and add training points
     myplot = ResultPlot()
@@ -164,7 +155,6 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
         fname = 'cluster_car{}_bw_{}'.format(car_id, FLAGS.cband) + '.png'
         plot_xy_with_label(dest_trn, model.clustering.predict(dest_trn), model.cluster_centers_,
                         save_dir=save_dir, fname=fname)
-
 
     # Individual visualizations
     for i in range(n_save_viz):
@@ -239,17 +229,24 @@ def main(_):
   #   5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
   # }[FLAGS.car_group]
 #   car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
-  car_id_list = [5, 100, 29, 72, 50, 15, 9, 74, 'KMH']
+  # car_id_list = [
+  #   1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
+  #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
+  #   39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
+  #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 75, 76, 77, 78, 80, 
+  #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
+  # ] # complement of selected
+  car_id_list = [29]#, 72, 50, 15, 9, 74, 'KMH'] # 5, 100, 
 
   # input path specification
-  proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8]
+  proportion_list = [0, 0.2, 0.4, 0.6, 0.8]
 
   # Used for loading data and building graph
   use_meta_list = [True, False]
   k_list = [5] if FLAGS.model_type == 'dnn' else [0]
-  path_embedding_dim_list = [50] if FLAGS.path_embedding_dim is None else [FLAGS.path_embedding_dim]
-
-  n_hidden_layer_list = [2]
+  path_embedding_dim_list = [50]# if FLAGS.path_embedding_dim is None else  # , 100 # 20, [FLAGS.path_embedding_dim]
+  n_hidden_layer_list = [3] # 1, 2, 
+  cband_list = [0.01] # , 0.05, 0.1
 
   # PARAM GRIDS
   param_grid_targets = [car_id_list,
@@ -258,13 +255,14 @@ def main(_):
                         path_embedding_dim_list, # path only
                         k_list, # path dnn only
                         n_hidden_layer_list, # for final dense layers
+                        cband_list
                         ]
   param_product = product(*param_grid_targets)
   print(param_grid_targets)
   param_product_size = np.prod([len(t) for t in param_grid_targets])
 
   for i, params in enumerate(param_product):
-    car_id, proportion, use_meta, path_embedding_dim, k, n_hidden_layer = params
+    car_id, proportion, use_meta, path_embedding_dim, k, n_hidden_layer, cband = params
 
     # If we do not use path input,
     # some param grids are not needed.
@@ -276,6 +274,14 @@ def main(_):
       if use_meta is False:
         continue
       k = 0 # set to 0 after continue statements. this param will be used only for importing data
+
+    FLAGS.use_meta = use_meta
+    FLAGS.use_path = proportion > 0
+    FLAGS.path_embedding_dim = path_embedding_dim
+
+    FLAGS.n_hidden_node = path_embedding_dim
+    FLAGS.n_hidden_layer = n_hidden_layer
+    FLAGS.cband = cband
 
     # Model id
     id_components = [
@@ -297,9 +303,6 @@ def main(_):
         i + 1, param_product_size, (i + 1) / param_product_size * 100) + '=' * 30)
     log.infov('model_id: ' + model_id)
 
-    FLAGS.use_meta = use_meta
-    FLAGS.use_path = proportion > 0
-    FLAGS.path_embedding_dim = path_embedding_dim
     # FLAGS.k = k
     train_eval_save(car_id, proportion, args.dest_type, 
                     model_id, n_save_viz=FLAGS.n_save_viz)
@@ -468,12 +471,12 @@ if __name__ == "__main__":
   # MODEL PARAMS
   FLAGS.model_type = args.model_type
   FLAGS.bi_direction = args.bi_direction # RNN only
-  FLAGS.max_length= 300 # RNN only
+  FLAGS.max_length= 500 # RNN only
   FLAGS.k = args.k # DNN only
-  FLAGS.path_embedding_dim = args.path_dim
-  FLAGS.n_hidden_node = args.path_dim
-  FLAGS.n_hidden_layer = args.n_dense
-  FLAGS.cband = args.cband
+#   FLAGS.path_embedding_dim = args.path_dim
+#   FLAGS.n_hidden_node = args.path_dim
+#   FLAGS.n_hidden_layer = args.n_dense
+#   FLAGS.cband = args.cband
   FLAGS.radius = args.radius
 
   # HYPER PARAMS

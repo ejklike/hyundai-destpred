@@ -45,9 +45,9 @@ def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
 def embed_path(paths):
   # print('path embedded')
   if FLAGS.model_type == 'dnn':
-    nn_inputs = tf.reshape(paths, # first and last k points for both x and y
-                           shape=[-1, 2 * 2 * FLAGS.k])
-    return tf.layers.dense(nn_inputs, 
+    # paths = tf.reshape(paths, # first and last k points for both x and y
+    #                        shape=[-1, 2 * 2 * FLAGS.k])
+    return tf.layers.dense(paths, 
                            FLAGS.path_embedding_dim, 
                            activation=tf.nn.relu, 
                            name='embed_path')

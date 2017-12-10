@@ -100,7 +100,7 @@ def plot_xy_with_label(dests, labels, centroid, remove_noise=False, save_dir='./
         save_path = save_dir + '/' + fname
         print(save_path)
         plt.savefig(save_path)
-
+    plt.close()
 
 
 # class MeanShiftWrapper(object):
