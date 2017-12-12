@@ -25,7 +25,7 @@ MODEL_DIR = './tf_models'
 VIZ_DIR = './viz'
 
 RAW_DATA_FNAME_LIST = ['dest_route_pred_sample.csv', 'dest_route_pred_sample_ag.csv']
-RECORD_FNAME = 'result.csv'
+RECORD_FNAME = 'result_dest5_againagain.csv'
 
 # how-to-suppress-verbose-tensorflow-logging
 # https://stackoverflow.com/questions/38073432/
@@ -35,32 +35,51 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 FLAGS = tf.flags.FLAGS
 
 
-def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
+def train_eval_save(car_id, dest_term, model_id, n_save_viz=0):
   """
   TRAIN and EVAL for given car and experimental settings
   """
   # Load datasets
-  fname_trn = os.path.join(
-      DATA_DIR,
-      get_pkl_file_name(car_id, proportion, dest_term, train=True))
-  fname_tst = os.path.join(
-      DATA_DIR,
-      get_pkl_file_name(car_id, proportion, dest_term, train=False))
+  path_trn_list, meta_trn_list, dest_trn_list, full_path_trn = [], [], [], []
+  path_tst_list, meta_tst_list, dest_tst_list, dt_tst, full_path_tst = [], [], [], [], []
 
-  # Numpy Arrays
-  path_trn, meta_trn, dest_trn, dt_trn, full_path_trn = load_data(fname_trn, 
-                                                                  k=FLAGS.k, 
-                                                                  max_length=FLAGS.max_length)
-  path_tst, meta_tst, dest_tst, dt_tst, full_path_tst = load_data(fname_tst,
-                                                                  k=FLAGS.k, 
-                                                                  max_length=FLAGS.max_length)
-  print('trn_data:', path_trn.shape, meta_trn.shape, dest_trn.shape)
+  for proportion in [0.2, 0.4, 0.6, 0.8]:
+    fname_trn = os.path.join(
+        DATA_DIR,
+        get_pkl_file_name(car_id, proportion, dest_term, train=True))
+    fname_tst = os.path.join(
+        DATA_DIR,
+        get_pkl_file_name(car_id, proportion, dest_term, train=False))
+
+    path, meta, dest, dt, full_path = load_data(fname_trn, 
+                                                k=FLAGS.k, 
+                                                max_length=FLAGS.max_length)
+    path_trn_list.append(path)
+    meta_trn_list.append(meta)
+    dest_trn_list.append(dest)
+    full_path_trn += full_path
+
+    path, meta, dest, dt, full_path = load_data(fname_tst,
+                                                k=FLAGS.k, 
+                                                max_length=FLAGS.max_length)
+    path_tst_list.append(path)
+    meta_tst_list.append(meta)
+    dest_tst_list.append(dest)
+    dt_tst += dt
+    full_path_tst += full_path
+    
+  path_trn = np.concatenate(path_trn_list, axis=0)
+  meta_trn = np.concatenate(meta_trn_list, axis=0)
+  dest_trn = np.concatenate(dest_trn_list, axis=0)
+  path_tst = np.concatenate(path_tst_list, axis=0)
+  meta_tst = np.concatenate(meta_tst_list, axis=0)
+  dest_tst = np.concatenate(dest_tst_list, axis=0)
+  print('trn_data:', path_trn.shape, dest_trn.shape)
 
   # Define model dir
   model_dir = os.path.join(MODEL_DIR, 
                            'dest_type_%d' % dest_term, 
                            'car_%03d' % car_id,
-                           'proportion_%.1f' % proportion, 
                            FLAGS.model_type,
                            model_id)
   model = Model(model_dir)
@@ -84,19 +103,16 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
   if FLAGS.record:
     log.info('save the results to %s', RECORD_FNAME)
     global_step = model.latest_step
-    loss_m_trn, loss_w_trn = model.eval_metrics(path_trn, meta_trn, dest_trn)
-    loss_m_tst, loss_w_tst = model.eval_metrics(path_tst, meta_tst, dest_tst)
-    print(loss_m_trn, loss_w_trn)
-    print(loss_m_tst, loss_w_tst)
+    loss_trn = model.eval_metrics(path_trn, meta_trn, dest_trn)
+    loss_tst = model.eval_metrics(path_tst, meta_tst, dest_tst)
+    print(loss_trn, loss_tst)
     recorder = Recorder(RECORD_FNAME)
     recorder.append_values([model_id, 
                             len(path_trn), 
                             len(path_tst), 
                             global_step,
-                            loss_m_trn, 
-                            loss_w_trn, 
-                            loss_m_tst, 
-                            loss_w_tst])
+                            loss_trn, 
+                            loss_tst])
     recorder.next_line()
   
   # TEST EVALUATION PART
@@ -107,10 +123,9 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
 
     # Define plat and add training points
     myplot = ResultPlot()
-    if proportion > 0:
-      myplot.add_point(
-            flat_and_trim_data(path_trn), label=None,
-            color='lightgray', marker='.', s=10, alpha=1, must_contain=False)
+    myplot.add_point(
+          flat_and_trim_data(path_trn), label=None,
+          color='lightgray', marker='.', s=10, alpha=1, must_contain=False)
     myplot.add_point(
           dest_trn, label=None,
           color='gray', marker='.', s=10, alpha=1, must_contain=False)
@@ -196,35 +211,16 @@ def main(_):
       data_preprocessor.process_and_save(raw_data_fname)
 
   # training target cars
-  # car_id_list = [
-  #   'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
-  #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-  #   39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
-  #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
-  #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
-  # ] # all
-  # car_id_list = {
-  #   1:['KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, ],
-  #   2:[19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, ],
-  #   3:[39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, ],
-  #   4:[61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, ],
-  #   5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
-  # }[FLAGS.car_group]
-  car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
-
-  # input path specification
-  proportion_list = [0.0, 0.2, 0.4, 0.6, 0.8]
+  car_id_list = [5, 100, 29, 72, 50, 14, 9, 74] # selected cars #]#,
 
   # Used for loading data and building graph
-  use_meta_list = [True, False]
-  k_list = [5] if FLAGS.model_type == 'dnn' else [0]
-  path_embedding_dim_list = [50]
-
-  n_hidden_layer_list = [2]
+  use_meta_list = [False]
+  k_list = [10] if FLAGS.model_type == 'dnn' else [0]
+  path_embedding_dim_list = [10, 50, 100]
+  n_hidden_layer_list = [1, 2, 3]
 
   # PARAM GRIDS
   param_grid_targets = [car_id_list,
-                        proportion_list, # path only
                         use_meta_list, # 
                         path_embedding_dim_list, # path only
                         k_list, # path dnn only
@@ -235,31 +231,15 @@ def main(_):
   param_product_size = np.prod([len(t) for t in param_grid_targets])
 
   for i, params in enumerate(param_product):
-    car_id, proportion, use_meta, path_embedding_dim, k, n_hidden_layer = params
-
-    # If we do not use path input,
-    # some param grids are not needed.
-    if proportion == 0:
-      if FLAGS.model_type == 'rnn': # train meta setting only in DNN run
-        continue
-      if (FLAGS.model_type == 'dnn') and (k != k_list[0]):
-        continue
-      if use_meta is False:
-        continue
-      k = 0 # set to 0 after continue statements. this param will be used only for importing data
+    car_id, use_meta, path_embedding_dim, k, n_hidden_layer = params
 
     # Model id
     id_components = [
         ('car{:03}' if isinstance(car_id, int) else 'car{}').format(car_id),
-        'path{:.1f}'.format(proportion),
-        '{meta}{model}_{edim}x{layer}'.format(
-            meta='M' if use_meta is True else 'X',
-            model=('B' if FLAGS.bi_direction else FLAGS.model_type[0].upper()) 
-                  if proportion > 0 else '_',
+        '{model}_{edim}x{layer}'.format(
+            model=('B' if FLAGS.bi_direction else FLAGS.model_type[0].upper()),
             edim=path_embedding_dim,
             layer=n_hidden_layer),
-        'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
-        'cband_{}'.format(FLAGS.cband),
         # some details
     ]
     model_id = '__'.join(id_components)
@@ -268,12 +248,15 @@ def main(_):
         i + 1, param_product_size, (i + 1) / param_product_size * 100) + '=' * 30)
     log.infov('model_id: ' + model_id)
 
+    FLAGS.k = k
     FLAGS.use_meta = use_meta
-    FLAGS.use_path = proportion > 0
+    FLAGS.use_path = True ###
     FLAGS.path_embedding_dim = path_embedding_dim
-    # FLAGS.k = k
-    train_eval_save(car_id, proportion, args.dest_type, 
+    FLAGS.n_hidden_layer = n_hidden_layer
+    FLAGS.n_hidden_node = path_embedding_dim
+    train_eval_save(car_id, args.dest_type, 
                     model_id, n_save_viz=FLAGS.n_save_viz)
+
 
 
 if __name__ == "__main__":
@@ -335,9 +318,9 @@ if __name__ == "__main__":
 
   # learning parameters and configs
   parser.add_argument(
-      '--learning_rate', 
+      '--lr', 
       type=float, 
-      default=0.001,
+      default=0.005,
       help='initial learning rate')
   parser.add_argument(
       '--keep_prob', 
@@ -367,7 +350,7 @@ if __name__ == "__main__":
   parser.add_argument(
       '--early_stopping_rounds', 
       type=int, 
-      default=10,
+      default=30,
       help='early_stopping_steps = (early_stopping_rounds) * (log frequency)')
   parser.add_argument(
       '--train', 
@@ -401,23 +384,11 @@ if __name__ == "__main__":
       '--car_group', 
       type=int, 
       default=None)
-  parser.add_argument(
-      '--proportion', 
-      type=float, 
-      default=None)
 
   parser.add_argument(
       '--dest_type', 
       type=int, 
       default=None)
-  parser.add_argument(
-      '--cband', 
-      type=float, 
-      default=0)
-  parser.add_argument(
-      '--radius', 
-      type=float, 
-      default=5)
 
   parser.add_argument(
       '--path_dim', 
@@ -434,21 +405,19 @@ if __name__ == "__main__":
   # GPU PARAMS
   os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_no or '-1'
   FLAGS.gpu_mem_frac = args.gpu_mem_frac
-  FLAGS.gpu_allow_growth = args.gpu_allow_growth
+  FLAGS.gpu_allow_growth = True # args.gpu_allow_growth
 
   # MODEL PARAMS
   FLAGS.model_type = args.model_type
   FLAGS.bi_direction = args.bi_direction # RNN only
-  FLAGS.max_length= 300 # RNN only
+  FLAGS.max_length = 10 # RNN only
   FLAGS.k = args.k # DNN only
-  FLAGS.path_embedding_dim = args.path_dim
-  FLAGS.n_hidden_node = args.path_dim
-  FLAGS.n_hidden_layer = args.n_dense
-  FLAGS.cband = args.cband
-  FLAGS.radius = args.radius
+#   FLAGS.path_embedding_dim = args.path_dim
+#   FLAGS.n_hidden_node = args.path_dim
+#   FLAGS.n_hidden_layer = args.n_dense
 
   # HYPER PARAMS
-  FLAGS.learning_rate = args.learning_rate
+  FLAGS.learning_rate = args.lr
   FLAGS.keep_prob = args.keep_prob
   FLAGS.reg_scale = args.reg_scale
   FLAGS.batch_size = args.batch_size
@@ -463,12 +432,6 @@ if __name__ == "__main__":
   FLAGS.restart = args.restart
   FLAGS.record = args.record
   FLAGS.n_save_viz = args.n_save_viz
-  
-
-  # GRID PARAMS
-  # FLAGS.car_group = args.car_group
-  # FLAGS.dest_type = args.dest_type
-  # car_group, proportion, dest_type, cband, path_dim, n_dense, 
   
   #
   FLAGS.preprocess = args.preprocess

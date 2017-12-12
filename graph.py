@@ -22,37 +22,42 @@ def length(sequence):
   return tf.cast(length, tf.int32)
 
 
-def rnn_last_output(rnn_input, n_unit=16, bi_direction=False, scope=None):
+def rnn_last_output(rnn_input, keep_prob, n_unit=16, bi_direction=False, scope=None):
   """
   input: [batch_size, time_size, 2]
   output: [batch_size, n_unit] if bi_direction is False else [batch_size, n_unit * 2]
   """
+  # rnn_depth = 2
+  # rnn_cell = rnn.MultiRNNCell([rnn.BasicLSTMCell(n_unit) for _ in range(rnn_depth)])
   rnn_cell = rnn.BasicLSTMCell(n_unit)
+  # rnn_cell = rnn.MultiRNNCell([rnn_cell] * 2)
+  rnn_cell = rnn.DropoutWrapper(rnn_cell, output_keep_prob=keep_prob)
   if bi_direction:
       outputs, _, = tf.nn.bidirectional_dynamic_rnn(
           rnn_cell, rnn_cell, rnn_input, dtype=tf.float32, scope=scope, 
           parallel_iterations=100,
           sequence_length=length(rnn_input))
       outputs = tf.concat(outputs, axis=2) # concat fw and bw outputs
+      return tf.reshape(outputs, [-1, 2 * n_unit * FLAGS.max_length])
   else:
       outputs, _ = tf.nn.dynamic_rnn(
           rnn_cell, rnn_input, dtype=tf.float32, scope=scope, 
           parallel_iterations=100,
           sequence_length=length(rnn_input))
-  return tf.unstack(outputs, axis=1, name='unstack')[-1]
+      return tf.reshape(outputs, [-1, n_unit * FLAGS.max_length])
+  # return tf.unstack(outputs, axis=1, name='unstack')[-1]
 
 
-def embed_path(paths):
+def embed_path(paths, keep_prob):
   # print('path embedded')
   if FLAGS.model_type == 'dnn':
-    nn_inputs = tf.reshape(paths, # first and last k points for both x and y
-                           shape=[-1, 2 * 2 * FLAGS.k])
-    return tf.layers.dense(nn_inputs, 
+    paths = tf.nn.dropout(paths, keep_prob=keep_prob, name='input_dropout')
+    return tf.layers.dense(paths, 
                            FLAGS.path_embedding_dim, 
                            activation=tf.nn.relu, 
                            name='embed_path')
   else:
-    return rnn_last_output(paths, 
+    return rnn_last_output(paths, keep_prob,
                            n_unit=FLAGS.path_embedding_dim, 
                            bi_direction=FLAGS.bi_direction,
                            scope='embed_path')
@@ -86,16 +91,9 @@ def embed_meta(metas):
                       weekday_embedding], axis=1)
 
 
-def extract_feature(path_t, meta_t):
+def extract_feature(path_t, meta_t, keep_t):
   """ return final prediction results
   """
-  # Regularization parameters
-  keep_prob = FLAGS.keep_prob
-  reg_scale = FLAGS.reg_scale
-  # dense layer parameters
-  n_hidden_layer = FLAGS.n_hidden_layer
-  n_hidden_node = FLAGS.n_hidden_node
-
   # Embed path and meta data
   embedding_results = []
 
@@ -104,22 +102,22 @@ def extract_feature(path_t, meta_t):
     embedding_results.append(meta_embedding)
 
   if FLAGS.use_path:
-    path_embedding = embed_path(path_t)
+    path_embedding = embed_path(path_t, keep_t)
     embedding_results.append(path_embedding)
 
   # Concat embeddings to feed to classification/regression part
   x = tf.concat(embedding_results, axis=1, name='concat_embedded_input')
-  x = tf.nn.dropout(x, keep_prob=keep_prob, name='concat_dropout')
+  x = tf.nn.dropout(x, keep_prob=keep_t, name='concat_dropout')
 
   # Stack dense layers (#: n_hidden_layer)
-  kernel_regularizer = tf.contrib.layers.l2_regularizer(scale=reg_scale)
-  for i_layer in range(1, n_hidden_layer + 1):
-    x = tf.layers.dense(x, n_hidden_node, 
+  kernel_regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.reg_scale)
+  for i_layer in range(1, FLAGS.n_hidden_layer + 1):
+    x = tf.layers.dense(x, FLAGS.n_hidden_node, 
                         activation=tf.nn.relu, 
                         name='dense_%d'%i_layer, 
                         kernel_regularizer=kernel_regularizer)
     x = tf.nn.dropout(x, 
-                      keep_prob=keep_prob, 
+                      keep_prob=keep_t, 
                       name='dense_%d_dropout'%i_layer)
 
   return x

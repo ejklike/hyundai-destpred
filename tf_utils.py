@@ -1,49 +1,10 @@
 import numpy as np
 import tensorflow as tf
-from sklearn.neighbors import radius_neighbors_graph
-
-class NeighborWeightCalculator(object):
-
-  def __init__(self, radius=5, reference_points=None):
-    assert reference_points is not None
-    # radius neighbor
-    self.radius = radius
-    # reference points to be counted
-    self.ref_points = reference_points
-    self.num_ref = len(reference_points)
-
-  def get_neighbor_weight(self, target_points):
-    """ return a weight proportion to the number of neighbors
-    input: the centers of radius_neighbors
-    output: a weight (sum to 1)
-    """
-    if self.radius > 0:
-      #         trn     tst
-      # trn | trn_trn trn_tst |
-      # tst | tst_trn tst_tst |
-      dest_all = np.concatenate([self.ref_points, target_points], axis=0)
-      connectivity_matrix = radius_neighbors_graph(dest_all, self.radius, 
-                                                  mode='connectivity',
-                                                  include_self=True, # contain myself
-                                                  # weighted distance
-                                                  metric='wminkowski', 
-                                                  metric_params={'w': [88.8, 111.0]},
-                                                  p=2).toarray()
-      # get only [trn_tst] part and apply reduce_sum to count all neighbors
-      counts = np.sum(connectivity_matrix[:self.num_ref, self.num_ref:], axis=0)
-    else:
-      counts = np.ones([target_points.shape[0],], dtype=np.int32)
-    return counts / np.sum(counts)
 
 
 class BatchGenerator(object):
 
-  def __init__(self, data_list, batch_size, epoch=None):
-    self.pointer = 0
-    self.counter = 0
-    self.batch_size = batch_size
-    self.epoch = epoch
-    self.data_size = data_list[0].shape[0]
+  def __init__(self, data_list):
     self.data_list = data_list
 
   def next_batch(self):

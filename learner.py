@@ -1,18 +1,50 @@
 import os
 import time
 
+import numpy as np
+np.random.seed(42)
+
 import tensorflow as tf
-from sklearn.cluster import MeanShift
+from tensorflow.contrib import rnn
 
 from log import log
 from utils import maybe_exist
 from tf_utils import (BatchGenerator, 
-                      NeighborWeightCalculator, 
                       compute_km_distances)
-from graph import (extract_feature)
+from graph import (extract_feature, length)
 
 # FLAGS to be applied across related modules
 FLAGS = tf.flags.FLAGS
+
+
+def encode_axis(x, keep_prob, scope=None):
+  if FLAGS.model_type == 'rnn':
+    rnn_cell = rnn.BasicLSTMCell(FLAGS.num_units) # FLAGS.path_embedding_dim
+    # rnn_cell = rnn.MultiRNNCell([rnn_cell] * 2)
+    rnn_cell = rnn.DropoutWrapper(rnn_cell, output_keep_prob=keep_prob)
+    if FLAGS.bi_direction:
+      outputs, _, = tf.nn.bidirectional_dynamic_rnn(
+          rnn_cell, rnn_cell, x, dtype=tf.float32, scope=scope, parallel_iterations=100)
+      outputs = tf.concat(outputs, axis=2) # concat fw and bw outputs
+    else:
+      outputs, _ = tf.nn.dynamic_rnn(
+          rnn_cell, x, dtype=tf.float32, scope=scope, parallel_iterations=1000)
+      
+    x = tf.unstack(outputs, axis=1, name='unstack')[-1]
+
+    # feature_size = FLAGS.seq_len * FLAGS.num_units * (2 if FLAGS.bi_direction else 1)
+    # x = tf.reshape(outputs, (-1, feature_size))
+
+  kernel_regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.reg_scale)
+  for i_layer in range(1, FLAGS.n_hidden_layer + 1):
+    x = tf.layers.dense(x, FLAGS.n_hidden_node, 
+                        activation=tf.nn.relu, 
+                        name=scope + '_' + 'dense_%d'%i_layer, 
+                        kernel_regularizer=kernel_regularizer)
+    x = tf.nn.dropout(x, 
+                      keep_prob=keep_prob, 
+                      name=scope + '_' + 'dense_%d_dropout'%i_layer)
+  return tf.layers.dense(x, 1, activation=None, name=scope + '_' +  'fianl')
 
 
 class Model(object):
@@ -23,23 +55,6 @@ class Model(object):
     self.model_dir = model_dir
     log.info('model_dir: %s', model_dir)
 
-  def prepare_prediction(self, dest_trn):
-    """
-    # We want weighted loss to ignore infrequent destinations 
-    # and to predict frequent destinations well.
-    # The reference points will be training destinations.
-    """
-    # Define loss_weight_calculator
-    self.loss_weight_gen = NeighborWeightCalculator(radius=FLAGS.radius, 
-                                                    reference_points=dest_trn)
-    # Find centroids of destinations
-    if FLAGS.cband > 0:
-      self.clustering = MeanShift(bandwidth=FLAGS.cband).fit(dest_trn)
-      self.centroids = self.clustering.cluster_centers_
-      print('cband=%f, #cluster=%d' %(FLAGS.cband, len(self.centroids)))
-
-    else:
-      self.centroids = None
 
   def build_graph(self):
     # Parameters
@@ -53,12 +68,8 @@ class Model(object):
     self.global_step = tf.train.get_or_create_global_step()
 
     # Placeholders
-    path_shape = dict(
-        dnn=[None, 2 * 2 * FLAGS.k], # fixed size
-        rnn=[None, FLAGS.max_length, 2] # variable length
-    )[FLAGS.model_type]
     self.path_t = tf.placeholder(dtype=tf.float32, 
-                                 shape=path_shape, # defined by model_type
+                                 shape=[None, FLAGS.seq_len, 2],
                                  name='path_placeholder')
     self.meta_t = tf.placeholder(dtype=tf.int32, 
                                  shape=[None, 4], 
@@ -66,38 +77,25 @@ class Model(object):
     self.dest_t = tf.placeholder(dtype=tf.float32, 
                                  shape=[None, 2], 
                                  name='dest_placeholder')
-    self.loss_weight_t = tf.placeholder(dtype=tf.float32,
-                                        shape=[None, ],
-                                        name='loss_weight_placeholder')
-
-    # Building graph from placeholders to extract hidden feature
-    feature_t = extract_feature(self.path_t, self.meta_t)
-
-    # Stack the last layer 
-    # to predict or clssify the final destination
-    if self.centroids is not None:
-      centroids_t = tf.constant(self.centroids,
-                                dtype=tf.float32, 
-                                name='centroids_constant')
-      probs_t = tf.layers.dense(feature_t, len(self.centroids), 
-                                activation=tf.nn.softmax, 
-                                name='cluster_probs')
-      self.pred_t = tf.nn.xw_plus_b(probs_t, centroids_t, [0., 0.], name='final')
-
+    self.keep_t = tf.placeholder(dtype=tf.float32, 
+                                 shape=None, 
+                                 name='keep_placeholder')
+    
+    if FLAGS.model_type == 'dnn':
+      path_x, path_y = tf.unstack(self.path_t, axis=2)
     else:
-      self.pred_t = tf.layers.dense(feature_t, 2, activation=None, name='fianl')
+      path_x, path_y = tf.split(self.path_t, axis=2, num_or_size_splits=2)
 
+    x_axis = encode_axis(path_x, self.keep_t, scope='encode_x')
+    y_axis = encode_axis(path_y, self.keep_t, scope='encode_y')
+
+    self.pred_t = tf.concat([x_axis, y_axis], axis=1)
 
     # Define loss
     distances = compute_km_distances(self.dest_t, self.pred_t)
+    self.average_loss_t = tf.reduce_mean(distances, name='average_loss')
+    tf.add_to_collection(tf.GraphKeys.LOSSES, self.average_loss_t)
 
-    weights = self.loss_weight_t    # for weighted average
-    self.weighted_loss_t = tf.reduce_sum(tf.multiply(distances , weights), name='weighted_loss')
-    tf.add_to_collection(tf.GraphKeys.LOSSES, self.weighted_loss_t)
-    weights = 1.0
-    self.average_loss_t = tf.losses.compute_weighted_loss(distances, weights, 
-                                                          scope='average_loss', 
-                                                          loss_collection=None)
 
     # Gather all losses
     losses = tf.get_collection(tf.GraphKeys.LOSSES)
@@ -106,28 +104,24 @@ class Model(object):
 
     # Training Op.
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    self.train_op = optimizer.minimize(loss=self.weighted_loss_t, 
+    self.train_op = optimizer.minimize(loss=self.loss_t, 
                                        global_step=tf.train.get_global_step())
 
     # Initializing Op.
-    # self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-    self.init_op = tf.global_variables_initializer()
+    self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
 
     # Create a saver for writing training checkpoints.
     self.saver = tf.train.Saver(max_to_keep=1)
 
     # Create a session for running Ops on the Graph.
     sess_config = tf.ConfigProto()
-    if FLAGS.gpu_mem_frac < 1:
-      sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_mem_frac
-    else:
-      sess_config.gpu_options.allow_growth = FLAGS.gpu_allow_growth
+    sess_config.gpu_options.allow_growth = FLAGS.gpu_allow_growth
     self.sess = tf.Session(config=sess_config)
 
 
   def init_or_restore_all_variables(self, restart=False):
     # Remove prev model or not
-    if restart is True and tf.gfile.Exists(self.model_dir):
+    if restart is True and self.latest_checkpoint is not None:
       log.warning('Delete prev model_dir: %s', self.model_dir)
       tf.gfile.DeleteRecursively(self.model_dir)
     
@@ -182,25 +176,30 @@ class Model(object):
     """
 
     # Parameters for training
-    batch_size = FLAGS.batch_size
     early_stopping_rounds = FLAGS.early_stopping_rounds
     log_freq = FLAGS.log_freq
 
     # Split train set into train/validation sets
-    num_trn = int(len(path) * (1 - FLAGS.validation_size))
-    path_trn, path_val = path[:num_trn], path[num_trn:]
-    meta_trn, meta_val = meta[:num_trn], meta[num_trn:]
-    dest_trn, dest_val = dest[:num_trn], dest[num_trn:]
+    num_data = len(path)
+    num_trn = int(num_data * (1 - FLAGS.validation_size))
+    trn_idx = np.random.choice(num_data, num_trn, replace=False)
+    mask = np.zeros((num_data, ), dtype=bool)
+    mask[trn_idx] = True
+    path_trn, path_val = path[mask], path[~mask]
+    meta_trn, meta_val = meta[mask], meta[~mask]
+    dest_trn, dest_val = dest[mask], dest[~mask]
+    # path_trn, path_val = path[:num_trn], path[num_trn:]
+    # meta_trn, meta_val = meta[:num_trn], meta[num_trn:]
+    # dest_trn, dest_val = dest[:num_trn], dest[num_trn:]
 
     # Instantiate batch generator
-    trn_batch_generator = BatchGenerator([path_trn, meta_trn, dest_trn], batch_size)
+    trn_batch_generator = BatchGenerator([path_trn, meta_trn, dest_trn])
 
     # Define feed_dict for validation and early stopping
-    loss_weights_val = self.loss_weight_gen.get_neighbor_weight(dest_val)
     feed_dict_val = {self.path_t: path_val, 
                      self.meta_t: meta_val, 
                      self.dest_t: dest_val,
-                     self.loss_weight_t: loss_weights_val}
+                     self.keep_t: 1}
 
     # And then after everything is built, start the training loop.
     try:
@@ -215,17 +214,15 @@ class Model(object):
 
         # Run one step of the model.
         this_path, this_meta, this_dest = trn_batch_generator.next_batch()
-        loss_weights = self.loss_weight_gen.get_neighbor_weight(this_dest)
         feed_dict = {self.path_t: this_path, 
                      self.meta_t: this_meta, 
                      self.dest_t: this_dest,
-                     self.loss_weight_t: loss_weights}
+                     self.keep_t: FLAGS.keep_prob}
         _, train_loss = self.sess.run([self.train_op, self.loss_t], feed_dict=feed_dict)
         step = self.latest_step
 
         # Time consumption summaries
         duration = time.time() - start_time
-        examples_per_sec = batch_size / duration
 
         # Write the summaries and print an overview fairly often.
         if step % log_freq == 0:
@@ -234,9 +231,8 @@ class Model(object):
           current_loss = self.sess.run(self.loss_t, feed_dict=feed_dict_val)
           
           # Print status to stdout.
-          print('\rStep %d: trn_loss=%.2f, val_loss=%.2f (%.1f sec/batch; %.1f examples/sec)'
-                % (step, train_loss, current_loss, duration, examples_per_sec),
-                flush=True, end='\r')
+          print('\rStep %d: trn_loss=%.2f, val_loss=%.2f (%.1f sec/batch)'
+                % (step, train_loss, current_loss, duration), flush=True, end='\r')
 
           # Save checkpoint if current loss is the best
           if best_loss is None or (current_loss < best_loss):
@@ -253,36 +249,33 @@ class Model(object):
                         .format(best_step, best_loss))
             coord.request_stop()
 
-          # # Update the events file.
-          # summary_str = self.sess.run(summary_op)
-          # summary_writer.add_summary(summary_str, step)
-
     except KeyboardInterrupt:
-        print('\n>> Training stopped by user!')
+        print('\n>> Training stopped by user! Restore the latest ckpt.')
+    
+    # restore params from the latest ckpt
+    self.init_or_restore_all_variables(restart=False)
 
 
   def predict(self, path, meta):
     """return destination predicted by this model"""
     assert self.latest_checkpoint is not None
 
-    feed_dict = {self.path_t: path, self.meta_t: meta}
+    feed_dict = {self.path_t: path, self.meta_t: meta, self.keep_t: 1}
     pred_v = self.sess.run(self.pred_t, feed_dict=feed_dict)
     
     return pred_v
 
 
-  def eval_metrics(self, path, meta, dest):
+  def eval_mean_distance(self, path, meta, dest):
     """return evaluation mectrics calculated by this model for the given dataset
     """
     assert self.latest_checkpoint is not None
 
-    loss_weights = self.loss_weight_gen.get_neighbor_weight(dest)
     feed_dict = {self.path_t: path, 
                  self.meta_t: meta, 
                  self.dest_t: dest,
-                 self.loss_weight_t: loss_weights}
-    return self.sess.run([self.average_loss_t, self.weighted_loss_t], 
-                         feed_dict=feed_dict)
+                 self.keep_t: 1}
+    return self.sess.run(self.average_loss_t, feed_dict=feed_dict)
 
 
   def close_session(self):

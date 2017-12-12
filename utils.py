@@ -1,4 +1,5 @@
 from datetime import datetime, date
+from itertools import product
 import os
 import pickle
 
@@ -53,43 +54,17 @@ def dist(x, y, to_km=False, std=False):
         return np.mean(distances), np.std(distances)
 
 
-def resize_by_padding(path, target_length):
-    """add zero padding AFTER the given path"""
-    path_length = path.shape[0]
-    pad_width = ((0, target_length - path_length), (0, 0))
-    return np.lib.pad(path, pad_width, 'constant', constant_values=0)
-
-
-def resize_to_2k(path, k):
-    """remove middle portion of the given path (np array)"""
-    # When the prefix of the trajectory contains less than
-    # 2k points, the first and last k points overlap
-    # (De Brébisson, Alexandre, et al., 2015)
+def resize_to_k(path, k):
+    """get the latest k points from the given path (np array)"""
     if len(path) < k: 
-        front_k, back_k = np.tile(path[0], (k, 1)), np.tile(path[-1], (k, 1))
+        diff = k - len(path)
+        back_k = np.concatenate([np.tile(path[0], (diff, 1)), path], axis=0)
     else:
-        front_k, back_k = path[:k], path[-k:]
-    return np.concatenate([front_k, back_k], axis=0)
+        back_k = path[-k:]
+    return back_k
 
 
-def trim_data(data):
-    """remove zero points
-    input: [original_length, 2]
-    output: [trimmed_length , 2]
-    """
-    return data[np.sum(data, axis=1) != 0]    
-
-
-def flat_and_trim_data(data):
-    """flatten and remove zero points
-    input: [batch_size, seq_length, 3]
-    output: [some_length , 2] (some_length < batch_size * seq_length)
-    """
-    data = data.reshape(-1, 2)
-    return trim_data(data)
-
-
-def load_data(fname, k=0, max_length=None):
+def load_data(fname, max_length):
     """
     input data:
         paths: list of path nparrays
@@ -106,15 +81,34 @@ def load_data(fname, k=0, max_length=None):
     paths, metas, dests = data['path'], data['meta'], data['dest']
     full_paths, dts = data['full_path'], data['dt']
 
-    if k == 0: # RNN or NO PATH
-        paths = [resize_by_padding(p, max_length) for p in paths]
-        paths = np.stack(paths, axis=0)
-
-    else: # DNN
-        paths = [resize_to_2k(p, k) for p in paths]
-        paths = np.stack(paths, axis=0).reshape(-1, 4 * k)
+    paths = [resize_to_1k(p, max_length) for p in paths]
+    paths = np.stack(paths, axis=0)
     
     metas, dests = np.array(metas), np.array(dests)
+
+    return paths, metas, dests, dts, full_paths
+
+
+def unified_latest_seqdata(car_id_list, proportion_list, dest_term,
+                           train=True, seq_len=10, data_dir='./data_pkl'):
+
+    path_list, meta_list, dest_list, dts, full_paths = [], [], [], [], []
+
+    for car_id, proportion in product(car_id_list, proportion_list):
+        fname = os.path.join(
+            data_dir, get_pkl_file_name(car_id, proportion, dest_term, train=train))
+        path, meta, dest, dt, full_path = load_data(fname, max_length=seq_len)
+        
+        path_list.append(path)
+        meta_list.append(meta)
+        dest_list.append(dest)
+        dts += dt
+        full_paths += full_path
+
+    # unified dataset
+    paths = np.concatenate(path_list, axis=0)
+    metas = np.concatenate(meta_list, axis=0)
+    dests = np.concatenate(dest_list, axis=0)
 
     return paths, metas, dests, dts, full_paths
 
@@ -123,38 +117,18 @@ class Recorder(object):
 
     def __init__(self, fname):
         self.fname = fname
+        self.str_to_record = ''
 
     def append_values(self, values):
         with open(self.fname, 'a') as fout:
             base_str = '{},' * len(values)
-            fout.write(base_str.format(*values))
+            self.str_to_record += base_str.format(*values)
 
     def next_line(self):
         with open(self.fname, 'a') as fout:
-            fout.write('\n')
-
-
-        # if not os.path.exists(fname):
-        #     with open(fname, 'w') as fout:
-        #         # fout.write('model_id,')
-        #         # fix = ['trn', 'tst']
-        #         # fout.write(''.join([s + '_size,' for s in fix]))
-        #         # fout.write('global_step,')
-        #         # fout.write(''.join(['mean_' + s + ',' for s in fix]))
-        #         # fout.write(''.join(['std_' + s + ',' for s in fix]))
-        #         # fout.write(''.join(['min_' + s + ',' for s in fix]))
-        #         # fout.write(''.join(['max_' + s + ',' for s in fix]))
-        #         fout.write('this is the beginning of recorder')
-        #         fout.write('\n')
-
-
-def kde_divergence(dest_old, dest_new, bandwidth=0.1):
-    kde_old = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_old)
-    kde_new = KernelDensity(kernel='gaussian', bandwidth=bandwidth).fit(dest_new)
-    dest_all = np.concatenate([dest_old, dest_new], axis=0)
-    score_old = np.exp(kde_old.score_samples(dest_all))
-    score_new = np.exp(kde_new.score_samples(dest_all))
-    return entropy(score_new, qk=score_old)
+            self.str_to_record += '\n'
+            fout.write(self.str_to_record)
+            self.str_to_record = ''
 
 
 class ResultPlot(object):
