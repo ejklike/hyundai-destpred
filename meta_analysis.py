@@ -45,7 +45,7 @@ def model_name_parser(model_name):
     parsed_list = model_name.split('__')
     dest_term = 0
     car_id = int(re.findall('\d+', parsed_list[0])[0])
-    proportion = float(re.findall('\d+', parsed_list[1])[0]) / 100
+    proportion = float(re.findall('\d+', parsed_list[1])[0])
     model_type = 'dnn' if re.findall('[A-Z]+', parsed_list[-1])[0][1] == 'D' else 'rnn'
     model_id = model_name
     n_hidden_layer, n_hidden_node = [int(i) for i in re.findall('\d+', parsed_list[-1])]
@@ -63,6 +63,7 @@ if __name__ == '__main__':
         # load model
         model_dir = os.path.join(MODEL_DIR,
                                  'dest_type_%d' % dest_term,
+                                 'proportion_%.1f' % proportion,
                                  'car_%03d' % car_id,
                                  model_type,
                                  model_id)
@@ -70,10 +71,10 @@ if __name__ == '__main__':
         # load data
         fname_trn = os.path.join(
             DATA_DIR,
-            get_pkl_file_name(car_id, proportion, dest_term, train=True))
+            get_pkl_file_name(car_id, proportion/100, dest_term, train=True))
         fname_tst = os.path.join(
             DATA_DIR,
-            get_pkl_file_name(car_id, proportion, dest_term, train=False))
+            get_pkl_file_name(car_id, proportion/100, dest_term, train=False))
         path_trn, meta_trn, dest_trn, dt_trn, full_path_trn = load_data(fname_trn,
                                                                         k=5,
                                                                         max_length=500)

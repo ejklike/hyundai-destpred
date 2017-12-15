@@ -371,4 +371,3 @@ class Model(object):
 
     def close_session(self):
         self.sess.close()
->>>>>>> f916e0354c10ec5f91ec9763104ff1528dec47f9
