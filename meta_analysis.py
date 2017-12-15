@@ -64,7 +64,7 @@ if __name__ == '__main__':
         model_dir = os.path.join(MODEL_DIR,
                                  'dest_type_%d' % dest_term,
                                  'car_%d' % car_id,
-                                 'proportion_%.1f' % proportion,
+                                 'proportion_%d' % proportion,
                                  model_type,
                                  model_id)
         model = Model(model_dir)
