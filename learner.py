@@ -138,10 +138,7 @@ class Model(object):
 
     # Create a session for running Ops on the Graph.
     sess_config = tf.ConfigProto()
-    if FLAGS.gpu_mem_frac < 1:
-      sess_config.gpu_options.per_process_gpu_memory_fraction = FLAGS.gpu_mem_frac
-    else:
-      sess_config.gpu_options.allow_growth = FLAGS.gpu_allow_growth
+    sess_config.gpu_options.allow_growth = True
     self.sess = tf.Session(config=sess_config)
 
 
@@ -245,7 +242,6 @@ class Model(object):
 
         # Time consumption summaries
         duration = time.time() - start_time
-        examples_per_sec = this_label.shape[0] / duration
 
         # Write the summaries and print an overview fairly often.
         if step % log_freq == 0:
@@ -254,8 +250,8 @@ class Model(object):
           current_loss = self.sess.run(self.loss_t, feed_dict=feed_dict_val)
           
           # Print status to stdout.
-          print('\rStep %d: trn_loss=%.2f, val_loss=%.2f (%.1f sec/batch; %.1f examples/sec)'
-                % (step, train_loss, current_loss, duration, examples_per_sec),
+          print('\rStep %d: trn_loss=%.2f, val_loss=%.2f (%.1f sec/batch)'
+                % (step, train_loss, current_loss, duration),
                 flush=True, end='\r')
 
           # Save checkpoint if current loss is the best
@@ -266,7 +262,7 @@ class Model(object):
 
           # Early stoppping          
           delta_steps = step - best_step
-          stop_now = delta_steps >= early_stopping_rounds * log_freq
+          stop_now = (delta_steps >= early_stopping_rounds * log_freq) or (step >= 10000)
           if stop_now:
             print('')
             log.warning('Stopping. Best step: {} with {:.4f}.'

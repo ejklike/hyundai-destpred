@@ -29,12 +29,17 @@ def convert_time_for_fname(date_time):
     return date_time.strftime('%Y%m%d_%H%M%S')
 
 
-def get_pkl_file_name(car_id, proportion, dest_term, train=True):
-    base_str = '{train}_{car_id}_proportion_{proportion}_y_{dest_type}.p'
+def get_pkl_file_name(car_id, prop_or_min, dest_term):
+    base_str = '{car_id}_{prop_or_min_name}_{prop_or_min}_y_{dest_type}.p'
+    if prop_or_min < 1:
+        prop_or_min_name = 'proportion'
+        prop_or_min = int(max(0.2, prop_or_min)) * 100
+    else:
+        prop_or_min_name = 'minute'
     file_name = base_str.format(
-        train='train' if train else 'test',
         car_id='VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
-        proportion=int(proportion * 100) if proportion > 0 else 20,
+        prop_or_min_name=prop_or_min_name,
+        prop_or_min=prop_or_min,
         dest_type=dest_term)
     return file_name
 
@@ -93,7 +98,7 @@ def flat_and_trim_data(data):
     return trim_data(data)
 
 
-def load_data(fname, k=0, max_length=None):
+def load_data(fname, k=0, train_ratio=0.8, data_size=100, max_length=None):
     """
     input data:
         paths: list of path nparrays
@@ -124,7 +129,21 @@ def load_data(fname, k=0, max_length=None):
     
     metas, dests = np.array(metas), np.array(dests)
 
-    return paths, metas, dests, dts, full_paths
+    if data_size == 'all':
+        data_size = len(paths)
+
+    if data_size <= len(paths):
+        trn_size = int(data_size * train_ratio)
+        path_trn, path_tst = paths[:trn_size], paths[trn_size:data_size]
+        meta_trn, meta_tst = metas[:trn_size], metas[trn_size:data_size]
+        dest_trn, dest_tst = dests[:trn_size], dests[trn_size:data_size]
+        dt_trn, dt_tst = dts[:trn_size], dts[trn_size:data_size]
+        full_path_trn, full_path_tst = full_paths[:trn_size], full_paths[trn_size:data_size]
+
+        return (path_trn, meta_trn, dest_trn, dt_trn, full_path_trn,
+                path_tst, meta_tst, dest_tst, dt_tst, full_path_tst)
+    else:
+        return None
 
 
 class Recorder(object):

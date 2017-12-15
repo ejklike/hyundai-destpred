@@ -18,10 +18,12 @@ def trn_batch_generator(paths, metas, labels, batch_size=300, epoch=10000):
     batch_labels_list = []
 
     for j in range(n_labels):
-      this_label_idxs = np.random.choice(label_idxs[j], batch_sizes[j])
-      batch_paths_list.append(paths[this_label_idxs])
-      batch_metas_list.append(metas[this_label_idxs])
-      batch_labels_list.append(labels[this_label_idxs])
+      # print(label_idxs[j], batch_sizes[j])
+      if len(label_idxs[j]) > 0:
+        this_label_idxs = np.random.choice(label_idxs[j], batch_sizes[j])
+        batch_paths_list.append(paths[this_label_idxs])
+        batch_metas_list.append(metas[this_label_idxs])
+        batch_labels_list.append(labels[this_label_idxs])
 
     batch_paths = np.concatenate(batch_paths_list, axis=0)
     batch_metas = np.concatenate(batch_metas_list, axis=0)

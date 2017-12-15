@@ -27,7 +27,7 @@ MODEL_DIR = './tf_models'
 VIZ_DIR = './viz'
 
 RAW_DATA_FNAME_LIST = ['dest_route_pred_sample.csv', 'dest_route_pred_sample_ag.csv']
-RECORD_FNAME = 'result.csv'
+RECORD_FNAME = 'result_prop_and_cumul_fix_all_preprocess.csv'
 
 # how-to-suppress-verbose-tensorflow-logging
 # https://stackoverflow.com/questions/38073432/
@@ -37,26 +37,30 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 FLAGS = tf.flags.FLAGS
 
 
-def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
+def train_eval_save(car_id, proportion, dest_term, data_size, model_id, n_save_viz=0):
   """
   TRAIN and EVAL for given car and experimental settings
   """
   # Load datasets
-  fname_trn = os.path.join(
-      DATA_DIR,
-      get_pkl_file_name(car_id, proportion, dest_term, train=True))
-  fname_tst = os.path.join(
-      DATA_DIR,
-      get_pkl_file_name(car_id, proportion, dest_term, train=False))
+  fname = os.path.join(DATA_DIR, get_pkl_file_name(car_id, proportion, dest_term))
+  dataset = load_data(fname, 
+                      k=FLAGS.k, 
+                      data_size=data_size, 
+                      train_ratio=0.8, 
+                      max_length=FLAGS.max_length)
+  if dataset is None:
+    return 
 
-  # Numpy Arrays
-  path_trn, meta_trn, dest_trn, dt_trn, full_path_trn = load_data(fname_trn, 
-                                                                  k=FLAGS.k, 
-                                                                  max_length=FLAGS.max_length)
-  path_tst, meta_tst, dest_tst, dt_tst, full_path_tst = load_data(fname_tst,
-                                                                  k=FLAGS.k, 
-                                                                  max_length=FLAGS.max_length)
+  path_trn, meta_trn, dest_trn, dt_trn, full_path_trn, \
+  path_tst, meta_tst, dest_tst, dt_tst, full_path_tst = dataset
   print('trn_data:', path_trn.shape, meta_trn.shape, dest_trn.shape)
+
+  if path_trn.shape[0] + path_tst.shape[0] <= 800:
+    log.warning("EXISTING MODEL IS VALID BY THE CRITERIA OF #DATA > 800. NO TRAINING!")
+    FLAGS.train = FLAGS.restart = False
+  else:
+    log.info("EXISTING MODEL IS NOT VALID. DO TRAINING!")
+    FLAGS.train = FLAGS.restart = True
 
   # Define model dir
   model_dir = os.path.join(MODEL_DIR, 
@@ -68,13 +72,13 @@ def train_eval_save(car_id, proportion, dest_term, model_id, n_save_viz=0):
   model = Model(model_dir)
 #   FLAGS.train = FLAGS.train or model.latest_checkpoint is None
 
-  # IF CKPT EXISTS, THEN NO TRAIN!
-  if model.latest_checkpoint is not None:
-    FLAGS.train = FLAGS.restart = False
-    log.warning('CKPT EXISTS. NO TRAINING.')
-  else:
-    FLAGS.train = FLAGS.restart = True
-    log.info('CKPT DOES NOT EXISTS. DO TRAINING.')
+#   # IF CKPT EXISTS, THEN NO TRAIN!
+#   if model.latest_checkpoint is not None:
+#     FLAGS.train = FLAGS.restart = False
+#     log.warning('CKPT EXISTS. NO TRAINING.')
+#   else:
+#     FLAGS.train = FLAGS.restart = True
+#     log.info('CKPT DOES NOT EXISTS. DO TRAINING.')
 
   # Derive some prerequisites
   # - destination centroids, radius_negibors, ..
@@ -214,6 +218,7 @@ def main(_):
       data_preprocessor.process_and_save(raw_data_fname)
 
   # training target cars
+  # 27, 38, 40, 41, 48, 51, 63, 79, 86, 99
   # car_id_list = [
   #   'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
   #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
@@ -221,52 +226,61 @@ def main(_):
   #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
   #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
   # ] # all
-  # car_id_list = {
-  #   1:['KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, ],
-  #   2:[19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, ],
-  #   3:[39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, ],
-  #   4:[61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, ],
-  #   5:[81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,]
-  # }[FLAGS.car_group]
-#   car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
-  # car_id_list = [
-  #   1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
-  #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-  #   39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
-  #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 75, 76, 77, 78, 80, 
-  #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
-  # ] # complement of selected
-  car_id_list = [29]#, 72, 50, 15, 9, 74, 'KMH'] # 5, 100, 
+  car_id_list = {
+    1:[9, 8, 7, 3, 1, 'KMH', ], 
+    2:[17, 16, 15, 14, 13, 10], 
+    3:[25, 24, 23, 22, 21, 20], 
+    4:[33, 32, 31, 30, 28, 26], 
+    5:[44, 43, 39, 37, 35, 34],
+    6:[52, 50, 49, 47, 46, 45],
+    7:[59, 58, 57, 56, 55, 54],
+    8:[69, 68, 66, 62, 61, 60],
+    9:[76, 75, 74, 73, 72, 71],
+    10:[88, 85, 84, 83, 81, 78],
+    11:[98, 96, 95, 93, 91, 90],
+    12:[],
+  }[FLAGS.car_group]
+  # car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
+#   car_id_list = [
+#     1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 13, 14, 16, 17, 18, 
+#     19, 20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37, 
+#     39, 42, 43, 44, 45, 46, 47, 49, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
+#     61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 73, 75, 76, 77, 78, 80, 
+#     81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98,
+#   ] # complement of selected
+#   car_id_list = [29]#, 72, 50, 15, 9, 74, 'KMH'] # 5, 100, 
 
   # input path specification
-  proportion_list = [0, 0.2, 0.4, 0.6, 0.8]
+  prop_or_min_list = [5, 10, 15, 20]# [0, 0.2, 0.4, 0.6, 0.8] 5, 
+  data_limit_list = ['all'] # 100, 200, 400, 800, 
 
   # Used for loading data and building graph
   use_meta_list = [True, False]
   k_list = [5] if FLAGS.model_type == 'dnn' else [0]
-  path_embedding_dim_list = [50]# if FLAGS.path_embedding_dim is None else  # , 100 # 20, [FLAGS.path_embedding_dim]
-  n_hidden_layer_list = [3] # 1, 2, 
-  cband_list = [0.01] # , 0.05, 0.1
+  path_embedding_dim_list = [20, 50, 100]
+  n_hidden_layer_list = [1, 2, 3]
+  cband_list = [0.1] # , 0.05, 0.1
 
   # PARAM GRIDS
   param_grid_targets = [car_id_list,
-                        proportion_list, # path only
+                        prop_or_min_list, # path only
+                        data_limit_list,
                         use_meta_list, # 
                         path_embedding_dim_list, # path only
                         k_list, # path dnn only
                         n_hidden_layer_list, # for final dense layers
                         cband_list
-                        ]
+                       ]
   param_product = product(*param_grid_targets)
   print(param_grid_targets)
   param_product_size = np.prod([len(t) for t in param_grid_targets])
 
   for i, params in enumerate(param_product):
-    car_id, proportion, use_meta, path_embedding_dim, k, n_hidden_layer, cband = params
+    car_id, prop_or_min, data_limit, use_meta, path_embedding_dim, k, n_hidden_layer, cband = params
 
     # If we do not use path input,
     # some param grids are not needed.
-    if proportion == 0:
+    if prop_or_min == 0:
       if FLAGS.model_type == 'rnn': # train meta setting only in DNN run
         continue
       if (FLAGS.model_type == 'dnn') and (k != k_list[0]):
@@ -276,7 +290,7 @@ def main(_):
       k = 0 # set to 0 after continue statements. this param will be used only for importing data
 
     FLAGS.use_meta = use_meta
-    FLAGS.use_path = proportion > 0
+    FLAGS.use_path = prop_or_min > 0
     FLAGS.path_embedding_dim = path_embedding_dim
 
     FLAGS.n_hidden_node = path_embedding_dim
@@ -286,15 +300,16 @@ def main(_):
     # Model id
     id_components = [
         ('car{:03}' if isinstance(car_id, int) else 'car{}').format(car_id),
-        'path{:.1f}'.format(proportion),
+        'path{:.1f}'.format(prop_or_min),
+        'cumul{}'.format(data_limit),
         '{meta}{model}_{edim}x{layer}'.format(
             meta='M' if use_meta is True else 'X',
             model=('B' if FLAGS.bi_direction else FLAGS.model_type[0].upper()) 
-                  if proportion > 0 else 'X',
+                  if prop_or_min > 0 else 'X',
             edim=path_embedding_dim,
             layer=n_hidden_layer),
         # 'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
-        'bw_{}'.format(FLAGS.cband),
+        # 'bw_{}'.format(FLAGS.cband),
         # some details
     ]
     model_id = '__'.join(id_components)
@@ -304,7 +319,7 @@ def main(_):
     log.infov('model_id: ' + model_id)
 
     # FLAGS.k = k
-    train_eval_save(car_id, proportion, args.dest_type, 
+    train_eval_save(car_id, prop_or_min, args.dest_type, data_limit,
                     model_id, n_save_viz=FLAGS.n_save_viz)
 
 
@@ -356,14 +371,6 @@ if __name__ == "__main__":
       type=float, 
       default=1,
       help='use only some portion of the GPU.')
-  # Data preprocess
-  parser.add_argument(
-      '--gpu_allow_growth', 
-      type=bool, 
-      nargs='?',
-      default=False, #default
-      const=True, #if the arg is given
-      help='Allow GPU growth')
 
   # learning parameters and configs
   parser.add_argument(
@@ -399,7 +406,7 @@ if __name__ == "__main__":
   parser.add_argument(
       '--early_stopping_rounds', 
       type=int, 
-      default=10,
+      default=200,
       help='early_stopping_steps = (early_stopping_rounds) * (log frequency)')
   parser.add_argument(
       '--train', 
@@ -465,8 +472,6 @@ if __name__ == "__main__":
 
   # GPU PARAMS
   os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_no or '-1'
-  FLAGS.gpu_mem_frac = args.gpu_mem_frac
-  FLAGS.gpu_allow_growth = args.gpu_allow_growth
 
   # MODEL PARAMS
   FLAGS.model_type = args.model_type
@@ -498,7 +503,7 @@ if __name__ == "__main__":
   
 
   # GRID PARAMS
-  # FLAGS.car_group = args.car_group
+  FLAGS.car_group = args.car_group
   # FLAGS.dest_type = args.dest_type
   # car_group, proportion, dest_type, cband, path_dim, n_dense, 
   
