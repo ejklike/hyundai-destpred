@@ -69,7 +69,7 @@ if __name__ == '__main__':
                                  model_id)
         model = Model(model_dir)
         # Load datasets
-        fname = os.path.join(DATA_DIR, get_pkl_file_name(car_id, proportion / 100, dest_term))
+        fname = os.path.join(DATA_DIR, get_pkl_file_name(car_id, proportion, dest_term))
         dataset = load_data(fname,
                             k=5,
                             data_size='all',
