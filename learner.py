@@ -48,17 +48,14 @@ class Model(object):
         else:
             self.cluster_centers_ = None
 
-    def build_graph(self, learning_rate=None, k=None, max_length=None, model_type=None, gpu_mem_frac=None,
-                    gpu_allow_growth=None, keep_prob=None, reg_scale=None, n_hidden_layer=None, n_hidden_node=None,
-                    use_meta=None, use_path=None, path_embedding_dim=None):
+    def build_graph(self, learning_rate=None, k=None, max_length=None, model_type=None, keep_prob=None, reg_scale=None,
+                    n_hidden_layer=None, n_hidden_node=None, use_meta=None, use_path=None, path_embedding_dim=None):
 
         # Parameters
         learning_rate = FLAGS.learning_rate if learning_rate is None else learning_rate
         k = FLAGS.k if k is None else k
         max_length = FLAGS.max_length if max_length is None else max_length
         model_type = FLAGS.model_type if model_type is None else model_type
-        gpu_mem_frac = FLAGS.gpu_mem_frac if gpu_mem_frac is None else gpu_mem_frac
-        gpu_allow_growth = FLAGS.gpu_allow_growth if gpu_allow_growth is None else gpu_allow_growth
 
         # Reset default_graph
         tf.reset_default_graph()
@@ -146,10 +143,7 @@ class Model(object):
 
         # Create a session for running Ops on the Graph.
         sess_config = tf.ConfigProto()
-        if gpu_mem_frac < 1:
-            sess_config.gpu_options.per_process_gpu_memory_fraction = gpu_mem_frac
-        else:
-            sess_config.gpu_options.allow_growth = gpu_allow_growth
+        sess_config.gpu_options.allow_growth = True
         self.sess = tf.Session(config=sess_config)
 
     def init_or_restore_all_variables(self, restart=False):

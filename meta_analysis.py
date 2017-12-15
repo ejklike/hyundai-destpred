@@ -63,30 +63,25 @@ if __name__ == '__main__':
         # load model
         model_dir = os.path.join(MODEL_DIR,
                                  'dest_type_%d' % dest_term,
+                                 'car_%d' % car_id,
                                  'proportion_%.1f' % proportion,
-                                 'car_%03d' % car_id,
                                  model_type,
                                  model_id)
         model = Model(model_dir)
-        # load data
-        fname_trn = os.path.join(
-            DATA_DIR,
-            get_pkl_file_name(car_id, proportion/100, dest_term, train=True))
-        fname_tst = os.path.join(
-            DATA_DIR,
-            get_pkl_file_name(car_id, proportion/100, dest_term, train=False))
-        path_trn, meta_trn, dest_trn, dt_trn, full_path_trn = load_data(fname_trn,
-                                                                        k=5,
-                                                                        max_length=500)
-        path_tst, meta_tst, dest_tst, dt_tst, full_path_tst = load_data(fname_tst,
-                                                                        k=5,
-                                                                        max_length=500)
+        # Load datasets
+        fname = os.path.join(DATA_DIR, get_pkl_file_name(car_id, proportion / 100, dest_term))
+        dataset = load_data(fname,
+                            k=5,
+                            data_size='all',
+                            train_ratio=0.8,
+                            max_length=500)
+        path_trn, meta_trn, dest_trn, dt_trn, full_path_trn, \
+        path_tst, meta_tst, dest_tst, dt_tst, full_path_tst = dataset
+
         model.prepare_prediction(dest_trn, cband=0.1)
-        model.build_graph(learning_rate=0.001, k=5, max_length=500,
-                          model_type=model_type, gpu_mem_frac=0.5, gpu_allow_growth=True,
-                          keep_prob=0.99, reg_scale=0.01, n_hidden_layer=n_hidden_layer,
-                          n_hidden_node=n_hidden_node, use_meta=True, use_path=True,
-                          path_embedding_dim=50)
+        model.build_graph(learning_rate=0.001, k=5, max_length=500, model_type=model_type, keep_prob=0.99,
+                          reg_scale=0.01, n_hidden_layer=n_hidden_layer, n_hidden_node=n_hidden_node, use_meta=True,
+                          use_path=True, path_embedding_dim=50)
         model.init_or_restore_all_variables(restart=False)
         true, pred = model.get_true_pred(path_tst, meta_tst, dest_tst)
 
