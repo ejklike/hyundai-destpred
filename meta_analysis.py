@@ -64,12 +64,12 @@ if __name__ == '__main__':
         model_dir = os.path.join(MODEL_DIR,
                                  'dest_type_%d' % dest_term,
                                  'car_%d' % car_id,
-                                 'proportion_%d' % proportion,
+                                 'proportion_%.1f' % proportion,
                                  model_type,
                                  model_id)
         model = Model(model_dir)
         # Load datasets
-        fname = os.path.join(DATA_DIR, get_pkl_file_name(car_id, proportion, dest_term))
+        fname = os.path.join(DATA_DIR, get_pkl_file_name(car_id, int(proportion), dest_term))
         dataset = load_data(fname,
                             k=5,
                             data_size='all',
