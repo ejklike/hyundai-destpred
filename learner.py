@@ -92,8 +92,8 @@ class Model(object):
     self.pred_t = tf.concat([x_axis, y_axis], axis=1)
 
     # Define loss
-    distances = compute_km_distances(self.dest_t, self.pred_t)
-    self.average_loss_t = tf.reduce_mean(distances, name='average_loss')
+    self.distances = compute_km_distances(self.dest_t, self.pred_t)
+    self.average_loss_t = tf.reduce_mean(self.distances, name='average_loss')
     tf.add_to_collection(tf.GraphKeys.LOSSES, self.average_loss_t)
 
 
@@ -229,7 +229,7 @@ class Model(object):
 
           # Validation loss
           current_loss = self.sess.run(self.loss_t, feed_dict=feed_dict_val)
-          
+
           # Print status to stdout.
           print('\rStep %d: trn_loss=%.2f, val_loss=%.2f (%.1f sec/batch)'
                 % (step, train_loss, current_loss, duration), flush=True, end='\r')
@@ -264,6 +264,17 @@ class Model(object):
     pred_v = self.sess.run(self.pred_t, feed_dict=feed_dict)
     
     return pred_v
+
+
+  def eval_dist(self, path, meta, dest):
+    """return destination predicted by this model"""
+    assert self.latest_checkpoint is not None
+
+    feed_dict = {self.path_t: path, self.meta_t: meta, self.dest_t: dest, self.keep_t: 1}
+    dist_v = self.sess.run(self.distances, feed_dict=feed_dict)
+    
+    return dist_v
+
 
 
   def eval_mean_distance(self, path, meta, dest):

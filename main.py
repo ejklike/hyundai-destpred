@@ -15,8 +15,6 @@ from utils import (get_pkl_file_name,
                    Recorder,
                    ResultPlot,
                    dist,
-                   flat_and_trim_data,
-                   trim_data,
                   )
 
 # Data dir
@@ -43,7 +41,7 @@ def train_eval_save(car_id, dest_term, model_id, n_save_viz=0):
   path_trn_list, meta_trn_list, dest_trn_list, full_path_trn = [], [], [], []
   path_tst_list, meta_tst_list, dest_tst_list, dt_tst, full_path_tst = [], [], [], [], []
 
-  for proportion in [0.2, 0.4, 0.6, 0.8]:
+  for proportion in [x/50 for x in range(1, 50)]:
     fname_trn = os.path.join(
         DATA_DIR,
         get_pkl_file_name(car_id, proportion, dest_term, train=True))
@@ -124,7 +122,7 @@ def train_eval_save(car_id, dest_term, model_id, n_save_viz=0):
     # Define plat and add training points
     myplot = ResultPlot()
     myplot.add_point(
-          flat_and_trim_data(path_trn), label=None,
+          path_trn, label=None,
           color='lightgray', marker='.', s=10, alpha=1, must_contain=False)
     myplot.add_point(
           dest_trn, label=None,
@@ -211,7 +209,13 @@ def main(_):
       data_preprocessor.process_and_save(raw_data_fname)
 
   # training target cars
-  car_id_list = [5, 100, 29, 72, 50, 14, 9, 74] # selected cars #]#,
+  car_id_list = [
+    'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
+    19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
+    39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
+    61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
+    81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
+  ] # all
 
   # Used for loading data and building graph
   use_meta_list = [False]

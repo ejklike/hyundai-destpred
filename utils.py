@@ -30,12 +30,18 @@ def convert_time_for_fname(date_time):
     return date_time.strftime('%Y%m%d_%H%M%S')
 
 
-def get_pkl_file_name(car_id, proportion, dest_term, train=True):
-    base_str = '{train}_{car_id}_proportion_{proportion}_y_{dest_type}.p'
+def get_pkl_file_name(car_id, prop_or_min, dest_term):
+    base_str = '{car_id}_{prop_or_min_name}_{prop_or_min}_y_{dest_type}.p'
+    if prop_or_min < 1:
+        prop_or_min_name = 'proportion'
+        prop_or_min = int(prop_or_min * 100)
+        # prop_or_min = int(max(0.2, prop_or_min)) * 100
+    else:
+        prop_or_min_name = 'minute'
     file_name = base_str.format(
-        train='train' if train else 'test',
         car_id='VIN_{}'.format(car_id) if isinstance(car_id, int) else car_id,
-        proportion=int(proportion * 100) if proportion > 0 else 20,
+        prop_or_min_name=prop_or_min_name,
+        prop_or_min=prop_or_min,
         dest_type=dest_term)
     return file_name
 
@@ -63,6 +69,15 @@ def resize_to_k(path, k):
         back_k = path[-k:]
     return back_k
 
+def resize_to_1k(path, k):
+    """get the latest k points from the given path (np array)"""
+    if len(path) < k: 
+        diff = k - len(path)
+        back_k = np.concatenate([np.tile(path[0], (diff, 1)), path], axis=0)
+    else:
+        back_k = path[-k:]
+    return back_k 
+
 
 def load_data(fname, max_length):
     """
@@ -81,36 +96,64 @@ def load_data(fname, max_length):
     paths, metas, dests = data['path'], data['meta'], data['dest']
     full_paths, dts = data['full_path'], data['dt']
 
-    paths = [resize_to_1k(p, max_length) for p in paths]
-    paths = np.stack(paths, axis=0)
-    
-    metas, dests = np.array(metas), np.array(dests)
+    # print(paths[:10])
+    # print(type(paths[0]), len(paths), metas[0])
+    # print( [len(p) for p in paths[:10]] )
 
-    return paths, metas, dests, dts, full_paths
+    paths = [resize_to_1k(p, max_length) for p in paths if len(p) > 0]
+    # paths = [p for p in paths if p is not None]
+    # print(paths)
+    # print(len(paths))
+    if len(paths) > 0:
+        paths = np.stack(paths, axis=0)
+        metas, dests = np.array(metas), np.array(dests)
+        return paths, metas, dests, dts, full_paths
+    else:
+        return None
 
 
 def unified_latest_seqdata(car_id_list, proportion_list, dest_term,
-                           train=True, seq_len=10, data_dir='./data_pkl'):
+                           train_ratio=0.8, seq_len=10, data_dir='./data_pkl'):
 
     path_list, meta_list, dest_list, dts, full_paths = [], [], [], [], []
 
     for car_id, proportion in product(car_id_list, proportion_list):
         fname = os.path.join(
-            data_dir, get_pkl_file_name(car_id, proportion, dest_term, train=train))
-        path, meta, dest, dt, full_path = load_data(fname, max_length=seq_len)
-        
-        path_list.append(path)
-        meta_list.append(meta)
-        dest_list.append(dest)
-        dts += dt
-        full_paths += full_path
+            data_dir, get_pkl_file_name(car_id, proportion, dest_term))
+        data_result = load_data(fname, max_length=seq_len)
+
+        if data_result is not None:
+            path, meta, dest, dt, full_path = data_result
+            path_list.append(path)
+            meta_list.append(meta)
+            dest_list.append(dest)
+            dts += dt
+            full_paths += full_path
 
     # unified dataset
     paths = np.concatenate(path_list, axis=0)
     metas = np.concatenate(meta_list, axis=0)
     dests = np.concatenate(dest_list, axis=0)
 
-    return paths, metas, dests, dts, full_paths
+    data_size = len(paths)
+
+    perm_idxs = np.random.permutation(data_size)
+
+    paths = paths[perm_idxs]
+    metas = metas[perm_idxs]
+    dests = dests[perm_idxs]
+    full_paths = [full_paths[i] for i in perm_idxs]
+    dts = [dts[i] for i in perm_idxs]
+
+    trn_size = int(data_size * train_ratio)
+    path_trn, path_tst = paths[:trn_size], paths[trn_size:data_size]
+    meta_trn, meta_tst = metas[:trn_size], metas[trn_size:data_size]
+    dest_trn, dest_tst = dests[:trn_size], dests[trn_size:data_size]
+    dt_trn, dt_tst = dts[:trn_size], dts[trn_size:data_size]
+    full_path_trn, full_path_tst = full_paths[:trn_size], full_paths[trn_size:data_size]
+
+    return (path_trn, meta_trn, dest_trn, dt_trn, full_path_trn,
+            path_tst, meta_tst, dest_tst, dt_tst, full_path_tst)
 
 
 class Recorder(object):

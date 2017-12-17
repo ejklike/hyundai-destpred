@@ -2,13 +2,25 @@ import numpy as np
 import tensorflow as tf
 
 
+# class BatchGenerator(object):
+
+#   def __init__(self, data_list):
+#     self.data_list = data_list
+
+#   def next_batch(self):
+#     return self.data_list
+
+
 class BatchGenerator(object):
 
   def __init__(self, data_list):
     self.data_list = data_list
+    self.data_size = data_list[0].shape[0]
+    self.batch_size = 1000
 
   def next_batch(self):
-    return self.data_list
+    idxs = np.random.choice(self.data_size, self.batch_size, replace=False)
+    return [data[idxs] for data in self.data_list]
 
 
 def compute_km_distances(dest1, dest2, name=None):
