@@ -10,7 +10,13 @@ from tf_utils import (BatchGenerator,
                       compute_km_distances)
 from clustering import ModifiedMeanShift
 from sklearn.metrics.pairwise import pairwise_distances
-from graph import (extract_feature)
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+
+from utils import dist
+from graph import extract_feature
 
 # FLAGS to be applied across related modules
 FLAGS = tf.flags.FLAGS
@@ -303,6 +309,13 @@ class Model(object):
     return cluster_label, cluster_label_hat
 
 
+  def eval_indiv(self, path, meta, dest):
+    assert self.latest_checkpoint is not None
+
+    true, pred = self.get_true_pred(path, meta, dest)
+    return np.concatenate([true.reshape(-1, 1), pred.reshape(-1, 1)], axis=1)
+
+
   def eval_metrics(self, path, meta, dest):
     """return evaluation mectrics calculated by this model for the given dataset
     """
@@ -310,65 +323,17 @@ class Model(object):
 
     true, pred = self.get_true_pred(path, meta, dest)
 
-    from sklearn.metrics import accuracy_score
-    from sklearn.metrics import precision_recall_fscore_support
-    from sklearn.metrics import confusion_matrix
-
     accuracy = accuracy_score(true, pred)
     precision, recall, fscore, _ = precision_recall_fscore_support(true, pred, average='macro')
-
-    from utils import dist
-
-    # filter_idxs = np.logical_and(true != -1, pred != -1)
-    # filter_labels = pred[filter_idxs]
-    # mean_dist = dist(dest[filter_idxs], self.cluster_centers_[filter_labels], to_km=True)
     mean_dist = dist(dest, self.cluster_centers_[pred], to_km=True)
-
-    # def convert_to_binary_noise(x):
-    #   internal_x = x.copy()
-    #   internal_x[internal_x!=-1] = 0 # remove all cluster informations
-    #   return -internal_x # noise becomes 1
-
-    # true_noise, pred_noise = convert_to_binary_noise(true), convert_to_binary_noise(pred)
-    # _, _, fscore_noise, _ = precision_recall_fscore_support(true_noise, pred_noise, average=None)
-    # fscore_noise = fscore_noise[1]
-
-
-
-    print('ACC, PREC, REC, F1: {:.2f}, {:.2f}, {:.2f}, {:.2f}'#, F1_NOISE: {:.2f}'
-          .format(accuracy, precision, recall, fscore))#, fscore_noise))
+    print('ACC, PREC, REC, F1: {:.2f}, {:.2f}, {:.2f}, {:.2f}'
+          .format(accuracy, precision, recall, fscore))
     print('MEAN DISTANCE ERROR: {:.3f}km'.format(mean_dist))
-    # print('NOISE PREC, REC, F1: {:.2f}, {:.2f}, {:.2f}'.format(pre_noise, rec_noise, fsc_noise))
-    # print('CONFUSION_MATRIX: ')
-    # print(confusion_matrix(true, pred))
 
-    from sklearn.metrics import classification_report
     target_names = ['C' + str(i) for i in range(self.clustering.n_cluster_)]
     print(classification_report(true, pred, target_names=target_names))
 
-    return [accuracy, precision, recall, fscore, mean_dist]#, fscore_noise]
-
-
-  # def eval_metrics_backup(self, path, meta, dest):
-  #   """return evaluation mectrics calculated by this model for the given dataset
-  #   """
-  #   assert self.latest_checkpoint is not None
-  #   if FLAGS.classification:
-  #     pred = self.predict(path, meta, dest) + 1
-
-  #     # 
-  #     anomaly_mask = (self.clustering.predict(dest) == -1).astype(np.float32).reshape(-1, 1)
-  #     pred = np.multiply(1 - anomaly_mask, pred) + np.multiply(anomaly_mask, dest)
-
-  #     from utils import dist
-  #     return dist(pred, dest, to_km=True), dist(pred, dest, to_km=True)
-  #   else:
-  #     loss_weights = self.loss_weight_gen.get_neighbor_weight(dest)
-  #     feed_dict = {self.path_t: path, 
-  #                 self.meta_t: meta, 
-  #                 self.dest_t: dest}
-  #     return self.sess.run([self.average_loss_t, self.weighted_loss_t], 
-  #                         feed_dict=feed_dict)
+    return [accuracy, precision, recall, fscore, mean_dist]
 
 
   def close_session(self):

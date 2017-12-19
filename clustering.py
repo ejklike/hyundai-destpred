@@ -103,69 +103,6 @@ def plot_xy_with_label(dests, labels, centroid, remove_noise=False, save_dir='./
     plt.close()
 
 
-# class MeanShiftWrapper(object):
-#   """
-#   exclude clusters containing points less than min_freq
-#   """
-
-#   def __init__(self, bandwidth=0.01, min_freq=3):
-#     self.mean_shift = MeanShift(bandwidth=bandwidth, cluster_all=False)
-#     self.min_freq = min_freq
-
-#   def fit(self, data):
-#     cluster_labels = self.mean_shift.fit_predict(data)
-
-#     bincounts = np.bincount(cluster_labels + 1)
-#     self._original_cluster_counts = bincounts[1:]
-#     self._noise_counts = bincounts[0]
-#     self._original_centroids = self.mean_shift.cluster_centers_
-
-#     # map between new label and old label in fit results
-#     # (key, value: old, new)
-#     self._old_to_new_map = dict()
-#     idxs = self._original_cluster_counts
-#     self.max_new_label = 0
-#     for old_label, count in enumerate(self._original_cluster_counts):
-#       if count >= self.min_freq:
-#         self.max_new_label += 1
-#         self._old_to_new_map[old_label] = self.max_new_label
-#       else:
-#         self._old_to_new_map[old_label] = 0
-
-#     self._valid_labels = [old for old, new in self._old_to_new_map.items() if new != -1]
-
-#     print(self._original_cluster_counts)
-#     print(self._valid_labels)
-#     return self
-
-#   def predict(self, data):
-#     old_labels = self.mean_shift.predict(data)
-#     new_labels = np.array([self._old_to_new_map[l] for l in old_labels])
-#     return new_labels
-
-#   @property
-#   def n_cluster_(self):
-#     return len(self._valid_labels)
-
-#   @property
-#   def cluster_counts_(self):
-#     valid_counts = self._original_cluster_counts[self._valid_labels]
-#     outlier_counts = np.sum(self._original_cluster_counts) - np.sum(valid_counts)
-#     return np.concatenate([self._noise_counts, valid_counts], axis=0)
-
-#   @property
-#   def cluster_centers_(self):
-#     valid_centers = self._original_centroids[self._valid_labels, :]
-#     number_of_outliers = len(self._original_centroids) - len(valid_centers)
-#     center_of_outliers = np.subtract(
-#         np.sum(self._original_centroids, axis=0), 
-#         np.sum(valid_centers, axis=0)
-#     ) / number_of_outliers
-#     return np.concatenate([center_of_outliers.reshape(1, 2), valid_centers], axis=0)
-
-
-
-
 class ModifiedMeanShift(BaseEstimator, ClusterMixin):
     """Mean shift clustering using a flat kernel.
     cluster frequent points in very small region (e.g., home, office, ...)

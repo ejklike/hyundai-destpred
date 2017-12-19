@@ -1,3 +1,7 @@
+"""
+usage: python main.py dnn --gpu_no=0 --k=5
+"""
+
 import argparse
 from itertools import product
 import os
@@ -49,18 +53,12 @@ def train_eval_save(car_id, proportion, dest_term, data_size, model_id, n_save_v
                       train_ratio=0.8, 
                       max_length=FLAGS.max_length)
   if dataset is None:
-    return 
+    return ''
 
   path_trn, meta_trn, dest_trn, dt_trn, full_path_trn, \
   path_tst, meta_tst, dest_tst, dt_tst, full_path_tst = dataset
   print('trn_data:', path_trn.shape, meta_trn.shape, dest_trn.shape)
-
-  if path_trn.shape[0] + path_tst.shape[0] <= 800:
-    log.warning("EXISTING MODEL IS VALID BY THE CRITERIA OF #DATA > 800. NO TRAINING!")
-    FLAGS.train = FLAGS.restart = False
-  else:
-    log.info("EXISTING MODEL IS NOT VALID. DO TRAINING!")
-    FLAGS.train = FLAGS.restart = True
+  print('tst_data:', path_tst.shape, meta_tst.shape, dest_tst.shape)
 
   # Define model dir
   model_dir = os.path.join(MODEL_DIR, 
@@ -70,19 +68,42 @@ def train_eval_save(car_id, proportion, dest_term, data_size, model_id, n_save_v
                            FLAGS.model_type,
                            model_id)
   model = Model(model_dir)
-#   FLAGS.train = FLAGS.train or model.latest_checkpoint is None
 
-#   # IF CKPT EXISTS, THEN NO TRAIN!
-#   if model.latest_checkpoint is not None:
-#     FLAGS.train = FLAGS.restart = False
-#     log.warning('CKPT EXISTS. NO TRAINING.')
-#   else:
-#     FLAGS.train = FLAGS.restart = True
-#     log.info('CKPT DOES NOT EXISTS. DO TRAINING.')
+  # IF CKPT EXISTS, THEN NO TRAIN!
+  if model.latest_checkpoint is not None:
+    if FLAGS.restart is False:
+      FLAGS.train = FLAGS.restart = False
+      log.warning('CKPT EXISTS. NO TRAINING.')
+    else:
+      FLAGS.train = False
+  else:
+    FLAGS.train = FLAGS.restart = True
+    log.info('CKPT DOES NOT EXISTS. DO TRAINING.')
 
   # Derive some prerequisites
   # - destination centroids, radius_negibors, ..
   model.prepare_prediction(dest_trn)
+  
+#   labels_trn = model.clustering.predict(dest_trn)
+
+#   fname = 'cluster_{}_{}_trn.png'.format(car_id, proportion)
+#   plot_xy_with_label(dest_trn, labels_trn, model.cluster_centers_, remove_noise=False, 
+#                      save_dir='./viz/', fname=fname)
+
+#   labels_tst = model.clustering.predict(dest_tst)
+
+#   fname = 'cluster_{}_{}_tst.png'.format(car_id, proportion)
+#   plot_xy_with_label(dest_tst, labels_tst, model.cluster_centers_, remove_noise=False, 
+#                      save_dir='./viz/', fname=fname)
+
+#   print('trn binc:', np.bincount(labels_trn, minlength=len(model.cluster_counts_)))   
+#   print('tst binc:', np.bincount(labels_tst, minlength=len(model.cluster_counts_)))
+
+#   pred_label = model.clustering.predict(dest_tst)
+#   cbincount = np.bincount(pred_label)
+#   max_bincount = np.max(cbincount)
+#   num_cluster = len(cbincount)
+#   return '{}, {}, {}, {}, {}, {}\n'.format(car_id, proportion, data_size, num_cluster, max_bincount, len(dest_tst))
   
   # Build graph and initialize all variables
   model.build_graph()
@@ -147,8 +168,9 @@ def train_eval_save(car_id, proportion, dest_term, data_size, model_id, n_save_v
     # Define details to save plot
     save_dir = os.path.join(VIZ_DIR, 
                             'path_and_prediction', 
-                            'dest_term_%d' % dest_term, 
-                            'car_{}'.format(car_id))
+                            'KMH',
+                            'dest_term_%d' % dest_term, )
+                            # 'car_{}'.format(car_id))
     fname = model_id[9:] + '.png'
     title = '{fname}\ndist={dist_km}km'
     title = title.format(fname=fname,
@@ -161,7 +183,8 @@ def train_eval_save(car_id, proportion, dest_term, data_size, model_id, n_save_v
                         save_dir=save_dir, fname=fname)
 
     # Individual visualizations
-    for i in range(n_save_viz):
+    # for i in range(n_save_viz):
+    for i in range(pred_tst.shape[0]):
       myplot.add_tmp_path(
             full_path_tst[i], label=None,
             color='lightblue', marker='.', must_contain=True)
@@ -194,8 +217,9 @@ def train_eval_save(car_id, proportion, dest_term, data_size, model_id, n_save_v
       # Define details to save plot
       save_dir = os.path.join(VIZ_DIR, 
                               'path_and_prediction', 
+                              'KMH',
                               'dest_term_%d' % dest_term, 
-                              'car_{}'.format(car_id), 
+                            #   'car_{}'.format(car_id), 
                               'start_%s' % start_time)
       fname = model_id[8:] + '.png'
       title = '{datetime}\n{fname}\ndist={dist_km}km'
@@ -218,48 +242,24 @@ def main(_):
       data_preprocessor.process_and_save(raw_data_fname)
 
   # training target cars
-  # 27, 38, 40, 41, 48, 51, 63, 79, 86, 99
-  # car_id_list = [
-  #   'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
-  #   19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
-  #   39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
-  #   61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
-  #   81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
-  # ] # all
-  car_id_list = {
-    1:[9, 8, 7, 3, 1, 'KMH', ], 
-    2:[17, 16, 15, 14, 13, 10], 
-    3:[25, 24, 23, 22, 21, 20], 
-    4:[33, 32, 31, 30, 28, 26], 
-    5:[44, 43, 39, 37, 35, 34],
-    6:[52, 50, 49, 47, 46, 45],
-    7:[59, 58, 57, 56, 55, 54],
-    8:[69, 68, 66, 62, 61, 60],
-    9:[76, 75, 74, 73, 72, 71],
-    10:[88, 85, 84, 83, 81, 78],
-    11:[98, 96, 95, 93, 91, 90],
-    12:[],
-  }[FLAGS.car_group]
-  # car_id_list = [5]#, 100, 29, 72, 50, 14, 9, 74] # selected cars
-#   car_id_list = [
-#     1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 13, 14, 16, 17, 18, 
-#     19, 20, 21, 22, 23, 24, 25, 26, 28, 30, 31, 32, 33, 34, 35, 36, 37, 
-#     39, 42, 43, 44, 45, 46, 47, 49, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
-#     61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 73, 75, 76, 77, 78, 80, 
-#     81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98,
-#   ] # complement of selected
-#   car_id_list = [29]#, 72, 50, 15, 9, 74, 'KMH'] # 5, 100, 
+  car_id_list = [
+    'KMH', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 
+    19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 
+    39, 42, 43, 44, 45, 46, 47, 49, 50, 52, 53, 54, 55, 56, 57, 58, 59, 60, 
+    61, 62, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 
+    81, 82, 83, 84, 85, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100,
+  ] # all
 
   # input path specification
-  prop_or_min_list = [5, 10, 15, 20]# [0, 0.2, 0.4, 0.6, 0.8] 5, 
-  data_limit_list = ['all'] # 100, 200, 400, 800, 
+  prop_or_min_list = [5, 10, 15, 20]
+  data_limit_list = [100, 200, 400, 800, 'all']
 
   # Used for loading data and building graph
   use_meta_list = [True, False]
   k_list = [5] if FLAGS.model_type == 'dnn' else [0]
   path_embedding_dim_list = [20, 50, 100]
   n_hidden_layer_list = [1, 2, 3]
-  cband_list = [0.1] # , 0.05, 0.1
+  cband_list = [0.1] # 0.1km
 
   # PARAM GRIDS
   param_grid_targets = [car_id_list,
@@ -307,9 +307,7 @@ def main(_):
             model=('B' if FLAGS.bi_direction else FLAGS.model_type[0].upper()) 
                   if prop_or_min > 0 else 'X',
             edim=path_embedding_dim,
-            layer=n_hidden_layer),
-        # 'reg_l{}_k{:.2f}'.format(FLAGS.reg_scale, FLAGS.keep_prob),
-        # 'bw_{}'.format(FLAGS.cband),
+            layer=n_hidden_layer)
         # some details
     ]
     model_id = '__'.join(id_components)
@@ -317,10 +315,9 @@ def main(_):
     log.infov('=' * 30 + '{} / {} ({:.1f}%)'.format(
         i + 1, param_product_size, (i + 1) / param_product_size * 100) + '=' * 30)
     log.infov('model_id: ' + model_id)
-
-    # FLAGS.k = k
-    train_eval_save(car_id, prop_or_min, args.dest_type, data_limit,
-                    model_id, n_save_viz=FLAGS.n_save_viz)
+  
+    train_eval_save(car_id, prop_or_min, FLAGS.dest_type, data_limit, 
+                           model_id, n_save_viz=FLAGS.n_save_viz)
 
 
 if __name__ == "__main__":
@@ -409,13 +406,6 @@ if __name__ == "__main__":
       default=200,
       help='early_stopping_steps = (early_stopping_rounds) * (log frequency)')
   parser.add_argument(
-      '--train', 
-      type=bool, 
-      nargs='?',
-      default=False, #default
-      const=True, #if the arg is given
-      help='train or just eval')
-  parser.add_argument(
       '--restart', 
       type=bool, 
       nargs='?',
@@ -437,10 +427,6 @@ if __name__ == "__main__":
 
   # PARAM GRID args
   parser.add_argument(
-      '--car_group', 
-      type=int, 
-      default=None)
-  parser.add_argument(
       '--proportion', 
       type=float, 
       default=None)
@@ -448,7 +434,7 @@ if __name__ == "__main__":
   parser.add_argument(
       '--dest_type', 
       type=int, 
-      default=None)
+      default=0)
   parser.add_argument(
       '--cband', 
       type=float, 
@@ -475,13 +461,10 @@ if __name__ == "__main__":
 
   # MODEL PARAMS
   FLAGS.model_type = args.model_type
+  FLAGS.dest_type = args.dest_type # 0 means final destination
   FLAGS.bi_direction = args.bi_direction # RNN only
   FLAGS.max_length= 500 # RNN only
   FLAGS.k = args.k # DNN only
-#   FLAGS.path_embedding_dim = args.path_dim
-#   FLAGS.n_hidden_node = args.path_dim
-#   FLAGS.n_hidden_layer = args.n_dense
-#   FLAGS.cband = args.cband
   FLAGS.radius = args.radius
 
   # HYPER PARAMS
@@ -496,18 +479,12 @@ if __name__ == "__main__":
   FLAGS.early_stopping_rounds = args.early_stopping_rounds
 
   # CONTROL PARAMS
-  FLAGS.train = args.train
   FLAGS.restart = args.restart
   FLAGS.record = args.record
   FLAGS.n_save_viz = args.n_save_viz
   
 
   # GRID PARAMS
-  FLAGS.car_group = args.car_group
-  # FLAGS.dest_type = args.dest_type
-  # car_group, proportion, dest_type, cband, path_dim, n_dense, 
-  
-  #
   FLAGS.preprocess = args.preprocess
   FLAGS.validation_size = args.validation_size
 
