@@ -15,7 +15,7 @@ from sklearn.preprocessing import OneHotEncoder
 from utils import dist
 
 METRIC = 'wminkowski'
-METRIC_PARAMS = {'w': [88.8, 111.0], 'p': 2}
+METRIC_PARAMS = {'w': [111.0, 88.0], 'p': 2}
 
 min_dist_between_clusters = 1.2
 
