@@ -26,7 +26,7 @@
 - `data_preprocessor.py`: 데이터 전처리 클래스를 담고 있음
 - `custom_loss.py`: 손실 함수 정의
 - `custom_hook.py`: early stopping & checkpoint saver hook
-- `log.py`, `clustering.py`, `tf_utils.py`, `utils.py`: 기타 기능 함수들 (파일이름, 출력, 시각화 등)
+- `log.py`, `tf_utils.py`, `utils.py`: 기타 기능 함수들 (파일이름, 출력, 시각화 등)
 
 ## API 사용예시
 
