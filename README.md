@@ -21,12 +21,12 @@
 
 ## 모듈 설명
 
-- `estimator.py`: 메인 모듈. 미리 정해진 인자와 함께 실행
-- `models.py`: 모델 그래프를 build하는 함수를 담고 있음
+- `main.py`: 메인 모듈. 미리 정해진 인자와 함께 실행
+- `learner.py`, `graph.py`: 모델 그래프를 build하는 클래스와 함수를 담고 있음
 - `data_preprocessor.py`: 데이터 전처리 클래스를 담고 있음
 - `custom_loss.py`: 손실 함수 정의
 - `custom_hook.py`: early stopping & checkpoint saver hook
-- `log.py`, `utils.py`: 기타 기능 함수들 (파일이름, 출력, 시각화 등)
+- `log.py`, `clustering.py`, `tf_utils.py`, `utils.py`: 기타 기능 함수들 (파일이름, 출력, 시각화 등)
 
 ## API 사용예시
 
@@ -35,20 +35,27 @@
 Usage statement:
 
 ```
-usage: estimator.py [-h] [--preprocess [PREPROCESS]]
-                    [--validation_size VALIDATION_SIZE] [--gpu_no GPU_NO]
-                    [--gpu_mem_frac GPU_MEM_FRAC]
-                    [--learning_rate LEARNING_RATE] [--batch_size BATCH_SIZE]
-                    [--steps STEPS] [--log_freq LOG_FREQ]
-                    [--early_stopping_rounds EARLY_STOPPING_ROUNDS]
-                    [--train [TRAIN]] [--n_save_viz N_SAVE_VIZ]
-                    model_type
+usage: main.py [-h] [--bi_direction [BI_DIRECTION]] [--k K]
+               [--preprocess [PREPROCESS]] [--validation_size VALIDATION_SIZE]
+               [--gpu_no GPU_NO] [--gpu_mem_frac GPU_MEM_FRAC]
+               [--learning_rate LEARNING_RATE] [--keep_prob KEEP_PROB]
+               [--reg_scale REG_SCALE] [--batch_size BATCH_SIZE]
+               [--steps STEPS] [--log_freq LOG_FREQ]
+               [--early_stopping_rounds EARLY_STOPPING_ROUNDS]
+               [--restart [RESTART]] [--record [RECORD]]
+               [--n_save_viz N_SAVE_VIZ] [--proportion PROPORTION]
+               [--dest_type DEST_TYPE] [--cband CBAND] [--radius RADIUS]
+               [--path_dim PATH_DIM] [--n_dense N_DENSE]
+               model_type
 
 positional arguments:
   model_type            dnn/rnn
 
 optional arguments:
   -h, --help            show this help message and exit
+  --bi_direction [BI_DIRECTION]
+                        RNN only, bidirection or not
+  --k K                 parameter k, only for DNN
   --preprocess [PREPROCESS]
                         Preprocess data or not
   --validation_size VALIDATION_SIZE
@@ -58,6 +65,10 @@ optional arguments:
                         use only some portion of the GPU.
   --learning_rate LEARNING_RATE
                         initial learning rate
+  --keep_prob KEEP_PROB
+                        keep_prob for dropout
+  --reg_scale REG_SCALE
+                        scale of regularizer for dense layers
   --batch_size BATCH_SIZE
                         batch size
   --steps STEPS         step size
@@ -65,9 +76,17 @@ optional arguments:
   --early_stopping_rounds EARLY_STOPPING_ROUNDS
                         early_stopping_steps = (early_stopping_rounds) * (log
                         frequency)
-  --train [TRAIN]       train or just eval
+  --restart [RESTART]   delete checkpoint of prev model
+  --record [RECORD]     save record or not
   --n_save_viz N_SAVE_VIZ
                         save "n" viz pngs for the test results
+  --proportion PROPORTION
+  --dest_type DEST_TYPE
+  --cband CBAND
+  --radius RADIUS
+  --path_dim PATH_DIM
+  --n_dense N_DENSE
+dsave "n" viz pngs for the test results
 ```
 
 ## 진행 계획
@@ -81,12 +100,12 @@ optional arguments:
 
 - 10월
   - [x] applying dataset api and estimator class
-  - [ ] data augmentation
+  - [x] data augmentation
   - [x] loss function
   - [x] destination inference: one-shot prediction or averaging cluster centroids
   - [x] visualization function
 
 - 11월
   - [x] early stopping and checkpoint saver
-  - [ ] structure engineering
-  - [ ] hyperparameter tuning
+  - [x] structure engineering
+  - [x] hyperparameter tuning
